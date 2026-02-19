@@ -45,6 +45,12 @@ class BusOutputProcessor(FrameProcessor):
         self._agent_name = agent_name
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
+        """Process a frame: pass lifecycle frames through, send others to bus.
+
+        Args:
+            frame: The frame to process.
+            direction: The direction the frame is traveling.
+        """
         await super().process_frame(frame, direction)
 
         # Lifecycle frames always pass through, never sent to bus

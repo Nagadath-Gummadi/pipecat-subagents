@@ -100,11 +100,21 @@ class FlowsAgent(BaseAgent):
         return self.build_initial_node()
 
     def build_pipeline_processors(self) -> List[FrameProcessor]:
+        """Return the LLM service as the sole pipeline processor."""
         # This is guaranteed to exist because we create it in
         # `create_pipeline_task()`.
         return [self._llm]
 
     async def create_pipeline_task(self) -> PipelineTask:
+        """Build the pipeline task and create the `FlowManager`.
+
+        Calls `build_llm()` to get the LLM service, delegates to the parent
+        for pipeline construction, then creates a `FlowManager` and registers
+        the ``end_conversation`` action.
+
+        Returns:
+            The created `PipelineTask`.
+        """
         self._llm = self.build_llm()
         task = await super().create_pipeline_task()
         self._flow_manager = FlowManager(

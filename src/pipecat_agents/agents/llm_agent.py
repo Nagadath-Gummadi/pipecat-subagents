@@ -97,4 +97,5 @@ class LLMAgent(BaseAgent):
         pass
 
     def build_pipeline_processors(self) -> List[FrameProcessor]:
+        """Return the LLM service as the sole pipeline processor."""
         return [self.build_llm()]

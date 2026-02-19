@@ -66,6 +66,17 @@ class BusBridgeProcessor(FrameProcessor):
                 self._pending_frames.append((message.frame, message.direction))
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
+        """Process a frame: pass lifecycle frames through, send others to bus.
+
+        Lifecycle frames (`StartFrame`, `EndFrame`, `CancelFrame`, `StopFrame`)
+        are always passed through. On `StartFrame`, any buffered bus frames are
+        flushed. All other frames are wrapped in `BusFrameMessage` and sent to
+        the bus (consumed, not passed downstream).
+
+        Args:
+            frame: The frame to process.
+            direction: The direction the frame is traveling.
+        """
         await super().process_frame(frame, direction)
 
         # Lifecycle frames always pass through, never sent to bus

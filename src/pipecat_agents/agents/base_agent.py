@@ -133,6 +133,7 @@ class BaseAgent(BaseObject):
         await self._call_event_handler("on_agent_stopped")
 
     async def cancel(self) -> None:
+        """Broadcast a hard cancel to all agents via the bus."""
         await self.send_message(BusCancelMessage(source=self.name))
 
     async def end(self) -> None:
