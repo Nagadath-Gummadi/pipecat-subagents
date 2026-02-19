@@ -65,12 +65,15 @@ class FlowsAgent(BaseAgent):
         self._global_functions = global_functions
         self._llm: Optional[LLMService] = None
         self._flow_manager: Optional[FlowManager] = None
+        self._flow_initialized = False
 
         @self.event_handler("on_agent_started")
         async def on_agent_started(agent):
-            # This is guaranteed to exist because we create it in
-            # `create_pipeline_task()`.
-            await self._flow_manager.initialize(self.build_initial_node())
+            if not self._flow_initialized:
+                self._flow_initialized = True
+                await self._flow_manager.initialize(self.build_initial_node())
+            else:
+                await self._flow_manager.set_node_from_config(self.build_resume_node())
 
     @property
     def flow_manager(self) -> Optional[FlowManager]:
@@ -86,6 +89,15 @@ class FlowsAgent(BaseAgent):
     def build_initial_node(self) -> NodeConfig:
         """Return the initial flow node configuration."""
         pass
+
+    def build_resume_node(self) -> NodeConfig:
+        """Return the node to resume from when re-entering this agent.
+
+        Called on subsequent activations (after the first). Override to
+        resume from a specific point in the flow based on ``flow_manager.state``.
+        Defaults to restarting the flow from the initial node.
+        """
+        return self.build_initial_node()
 
     def build_pipeline_processors(self) -> List[FrameProcessor]:
         # This is guaranteed to exist because we create it in
