@@ -13,7 +13,7 @@ from loguru import logger
 from pipecat.audio.vad.vad_analyzer import VADAnalyzer
 from pipecat.frames.frames import EndFrame
 from pipecat.pipeline.runner import PipelineRunner
-from pipecat.pipeline.task import PipelineParams
+from pipecat.pipeline.task import CANCEL_TIMEOUT_SECS, PipelineParams
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import LLMContextAggregatorPair
 from pipecat.processors.frame_processor import FrameProcessor
@@ -59,6 +59,8 @@ class UserAgentParams(BaseModel):
     stt: Optional[FrameProcessor] = None
     tts: Optional[FrameProcessor] = None
     pipeline_params: Optional[PipelineParams] = None
+    cancel_on_idle_timeout: bool = True
+    cancel_timeout_secs: float = CANCEL_TIMEOUT_SECS
 
 
 class AgentRunner(BaseObject):
@@ -106,6 +108,8 @@ class AgentRunner(BaseObject):
                 stt=user_agent_params.stt,
                 tts=user_agent_params.tts,
                 pipeline_params=user_agent_params.pipeline_params,
+                cancel_on_idle_timeout=user_agent_params.cancel_on_idle_timeout,
+                cancel_timeout_secs=user_agent_params.cancel_timeout_secs,
             )
             self._agents[self._user_agent.name] = self._user_agent
 

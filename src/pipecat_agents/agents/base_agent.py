@@ -15,9 +15,9 @@ from abc import abstractmethod
 from typing import Any, Callable, List, Optional
 
 from loguru import logger
-from pipecat.frames.frames import FunctionCallResultProperties, StartFrame
+from pipecat.frames.frames import CancelFrame, FunctionCallResultProperties, StartFrame
 from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.task import PipelineParams, PipelineTask
+from pipecat.pipeline.task import CANCEL_TIMEOUT_SECS, PipelineParams, PipelineTask
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frame_processor import FrameProcessor
 from pipecat.processors.frameworks.rtvi import RTVIObserverParams, RTVIProcessor
@@ -59,6 +59,8 @@ class BaseAgent(BaseObject):
         rtvi_processor: Optional[RTVIProcessor] = None,
         rtvi_observer_params: Optional[RTVIObserverParams] = None,
         pipeline_params: Optional[PipelineParams] = None,
+        cancel_on_idle_timeout: bool = False,
+        cancel_timeout_secs: float = CANCEL_TIMEOUT_SECS,
     ):
         """Initialize the BaseAgent.
 
@@ -85,12 +87,15 @@ class BaseAgent(BaseObject):
         self._rtvi_processor = rtvi_processor
         self._rtvi_observer_params = rtvi_observer_params
         self._pipeline_params = pipeline_params or PipelineParams()
+        self._cancel_on_idle_timeout = cancel_on_idle_timeout
+        self._cancel_timeout_secs = cancel_timeout_secs
         self._task: Optional[PipelineTask] = None
         self._pipeline_started = False
         self._pending_start = False
 
         self._register_event_handler("on_agent_started", sync=True)
         self._register_event_handler("on_agent_stopped", sync=True)
+        self._register_event_handler("on_bus_message", sync=True)
 
         @bus.event_handler("on_message")
         async def on_message(bus, message: BusMessage):
@@ -127,6 +132,9 @@ class BaseAgent(BaseObject):
         self._enabled = False
         await self._call_event_handler("on_agent_stopped")
 
+    async def cancel(self) -> None:
+        await self.send_message(BusCancelMessage(source=self.name))
+
     async def end(self) -> None:
         """Request a graceful end of the entire session."""
         await self.send_message(BusEndMessage(source=self.name))
@@ -156,7 +164,7 @@ class BaseAgent(BaseObject):
                 context_updated.set()
 
             await result_callback(
-                "Continue helping the customer with their request.",
+                "Help the user with their latest request.",
                 properties=FunctionCallResultProperties(
                     run_llm=False,
                     on_context_updated=_on_context_updated,
@@ -206,6 +214,8 @@ class BaseAgent(BaseObject):
             enable_rtvi=self._enable_rtvi,
             rtvi_processor=self._rtvi_processor,
             rtvi_observer_params=self._rtvi_observer_params,
+            cancel_on_idle_timeout=self._cancel_on_idle_timeout,
+            cancel_timeout_secs=self._cancel_timeout_secs,
         )
 
         @self._task.event_handler("on_pipeline_started")
@@ -215,6 +225,11 @@ class BaseAgent(BaseObject):
                 BusAgentRegisteredMessage(source=self.name, agent_name=self.name)
             )
             await self._maybe_start_agent()
+
+        @self._task.event_handler("on_pipeline_finished")
+        async def on_pipeline_canceled(task, frame):
+            if isinstance(frame, CancelFrame):
+                await self.cancel()
 
         return self._task
 
