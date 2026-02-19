@@ -14,7 +14,7 @@ from pipecat.frames.frames import CancelFrame, EndFrame, Frame, StartFrame, Stop
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
 from pipecat_agents.bus.bus import AgentBus
-from pipecat_agents.bus.frames import BusFrameMessage
+from pipecat_agents.bus.messages import BusFrameMessage
 
 _LIFECYCLE_FRAMES = (StartFrame, EndFrame, CancelFrame, StopFrame)
 

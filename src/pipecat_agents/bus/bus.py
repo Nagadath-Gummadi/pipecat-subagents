@@ -12,7 +12,7 @@ use to exchange messages.
 
 from pipecat.utils.base_object import BaseObject
 
-from pipecat_agents.bus.frames import BusMessage
+from pipecat_agents.bus.messages import BusMessage
 
 
 class AgentBus(BaseObject):

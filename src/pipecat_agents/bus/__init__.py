@@ -6,8 +6,9 @@
 
 """Agent bus package — pub/sub messaging between agents and the runner."""
 
+from pipecat_agents.bus.bridge_processor import BusBridgeProcessor
 from pipecat_agents.bus.bus import AgentBus
-from pipecat_agents.bus.frames import (
+from pipecat_agents.bus.messages import (
     BusAddAgentMessage,
     BusAgentRegisteredMessage,
     BusAssistantTurnStartedMessage,
@@ -24,7 +25,6 @@ from pipecat_agents.bus.frames import (
     BusUserTurnStartedMessage,
     BusUserTurnStoppedMessage,
 )
-from pipecat_agents.bus.bridge_processor import BusBridgeProcessor
 from pipecat_agents.bus.output_processor import BusOutputProcessor
 
 __all__ = [
