@@ -15,7 +15,7 @@ from typing import List, Optional
 
 from loguru import logger
 from pipecat.audio.vad.vad_analyzer import VADAnalyzer
-from pipecat.pipeline.task import PipelineParams
+from pipecat.pipeline.task import CANCEL_TIMEOUT_SECS, PipelineParams
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
     AssistantTurnStoppedMessage,
@@ -27,7 +27,7 @@ from pipecat.processors.aggregators.llm_response_universal import (
 from pipecat.processors.audio.vad_processor import VADProcessor
 from pipecat.processors.frame_processor import FrameProcessor
 from pipecat.transports.base_transport import BaseTransport
-from pipecat.utils.context.llm_context_summarization import LLMContextSummarizationConfig
+from pydantic import BaseModel, ConfigDict
 
 from pipecat_agents.agents.base_agent import BaseAgent
 from pipecat_agents.bus import (
@@ -46,6 +46,39 @@ from pipecat_agents.bus import (
 USER_AGENT_NAME = "user"
 
 
+class UserAgentParams(BaseModel):
+    """Configuration for the user agent (transport bridge).
+
+    Parameters:
+        transport: The transport (WebRTC, WebSocket, etc.) to bridge.
+        context: Optional shared `LLMContext` for turn detection.
+        vad_analyzer: Optional VAD analyzer for speech detection.
+        stt: Optional STT service.
+        tts: Optional TTS service.
+        pipeline_params: Optional `PipelineParams` for the pipeline task.
+        user_aggregator_params: Optional `LLMUserAggregatorParams` for the
+            user aggregator.
+        assistant_aggregator_params: Optional `LLMAssistantAggregatorParams`
+            for the assistant aggregator.
+        cancel_on_idle_timeout: Whether to cancel the pipeline on idle
+            timeout. Defaults to True.
+        cancel_timeout_secs: Timeout in seconds for pipeline cancellation.
+    """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    transport: BaseTransport
+    context: Optional[LLMContext] = None
+    vad_analyzer: Optional[VADAnalyzer] = None
+    stt: Optional[FrameProcessor] = None
+    tts: Optional[FrameProcessor] = None
+    pipeline_params: Optional[PipelineParams] = None
+    user_aggregator_params: Optional[LLMUserAggregatorParams] = None
+    assistant_aggregator_params: Optional[LLMAssistantAggregatorParams] = None
+    cancel_on_idle_timeout: bool = True
+    cancel_timeout_secs: float = CANCEL_TIMEOUT_SECS
+
+
 class UserAgent(BaseAgent):
     """The user agent — owns the transport pipeline and bridges it to the bus.
 
@@ -60,29 +93,12 @@ class UserAgent(BaseAgent):
         ``input → [VAD] → [STT] → BusBridge → [TTS] → output``
     """
 
-    def __init__(
-        self,
-        *,
-        bus: AgentBus,
-        transport: BaseTransport,
-        context: Optional[LLMContext] = None,
-        vad_analyzer: Optional[VADAnalyzer] = None,
-        stt: Optional[FrameProcessor] = None,
-        tts: Optional[FrameProcessor] = None,
-        pipeline_params: Optional[PipelineParams] = None,
-        **kwargs,
-    ):
+    def __init__(self, *, bus: AgentBus, params: UserAgentParams):
         """Initialize the UserAgent.
 
         Args:
             bus: The `AgentBus` for inter-agent communication.
-            transport: The transport (WebRTC, WebSocket, etc.) to bridge.
-            context: Optional shared `LLMContext`. When provided, creates
-                aggregators for turn detection and context tracking.
-            vad_analyzer: Optional VAD analyzer for speech detection.
-            stt: Optional STT service shared across all agents.
-            tts: Optional TTS service shared across all agents.
-            pipeline_params: Optional `PipelineParams` for the pipeline task.
+            params: Configuration for the transport, context, and services.
         """
         super().__init__(
             USER_AGENT_NAME,
@@ -90,17 +106,17 @@ class UserAgent(BaseAgent):
             enabled=True,
             enable_bus_output=False,
             enable_rtvi=True,
-            context=context,
-            pipeline_params=pipeline_params,
-            **kwargs,
+            pipeline_params=params.pipeline_params,
+            cancel_on_idle_timeout=params.cancel_on_idle_timeout,
+            cancel_timeout_secs=params.cancel_timeout_secs,
         )
-        self._transport = transport
-        self._context = context
-        self._vad_analyzer = vad_analyzer
-        self._stt = stt
-        self._tts = tts
+        self._params = params
 
-        self._context_aggregator_pair = LLMContextAggregatorPair(context) if context else None
+        self._context_aggregator_pair = (
+            self._build_aggregators() if params.context else None
+        )
+
+        transport = params.transport
 
         @transport.event_handler("on_client_connected")
         async def on_client_connected(transport, client):
@@ -113,7 +129,18 @@ class UserAgent(BaseAgent):
             await self.send_message(BusClientDisconnectedMessage(source=self.name, client=client))
 
     def build_pipeline_processors(self) -> List[FrameProcessor]:
-        user_agg, assistant_agg = self._build_aggregators()
+        """Build the transport pipeline processors.
+
+        Assembles the pipeline chain and wires aggregator events if a
+        shared context was provided.
+
+        Returns:
+            Ordered list of frame processors for the pipeline.
+        """
+        user_agg, assistant_agg = None, None
+        if self._context_aggregator_pair:
+            user_agg, assistant_agg = self._context_aggregator_pair
+            self._wire_aggregator_events(user_agg, assistant_agg)
 
         bus_bridge = BusBridgeProcessor(
             bus=self._bus,
@@ -124,15 +151,15 @@ class UserAgent(BaseAgent):
         processors: list[FrameProcessor] = []
 
         # Input transport
-        processors.append(self._transport.input())
+        processors.append(self._params.transport.input())
 
         # VAD Analyzer
-        if self._vad_analyzer:
-            processors.append(VADProcessor(vad_analyzer=self._vad_analyzer))
+        if self._params.vad_analyzer:
+            processors.append(VADProcessor(vad_analyzer=self._params.vad_analyzer))
 
         # STT
-        if self._stt:
-            processors.append(self._stt)
+        if self._params.stt:
+            processors.append(self._params.stt)
 
         # User aggregator
         if user_agg:
@@ -142,11 +169,11 @@ class UserAgent(BaseAgent):
         processors.append(bus_bridge)
 
         # TTS
-        if self._tts:
-            processors.append(self._tts)
+        if self._params.tts:
+            processors.append(self._params.tts)
 
         # Output transport
-        processors.append(self._transport.output())
+        processors.append(self._params.transport.output())
 
         # Assistant aggregator
         if assistant_agg:
@@ -159,35 +186,18 @@ class UserAgent(BaseAgent):
         """The context aggregator pair, or None if no context was provided."""
         return self._context_aggregator_pair
 
-    def _build_aggregators(self):
-        """Wire context aggregators if a shared context is provided.
+    def _build_aggregators(self) -> LLMContextAggregatorPair:
+        """Create the context aggregator pair.
 
-        Returns (user_agg, assistant_agg) or (None, None).
+        Returns:
+            The `LLMContextAggregatorPair` with the configured params.
         """
-        if not self._context_aggregator_pair:
-            return None, None
-
-        user_agg, assistant_agg = LLMContextAggregatorPair(
-            self._context,
-            user_params=LLMUserAggregatorParams(
-                # This uses the LLM to allow the user more time to response,
-                # based on the context of the conversation.
-                filter_incomplete_user_turns=True,
-            ),
-            assistant_params=LLMAssistantAggregatorParams(
-                enable_context_summarization=True,
-                context_summarization_config=LLMContextSummarizationConfig(
-                    max_context_tokens=8000,  # Trigger at 8000 tokens
-                    target_context_tokens=6000,  # Target summary size
-                    max_unsummarized_messages=20,  # Or trigger after 20 new messages
-                    min_messages_after_summary=4,  # Keep last 4 messages uncompressed
-                ),
-            ),
-        )
-
-        self._wire_aggregator_events(user_agg, assistant_agg)
-
-        return user_agg, assistant_agg
+        kwargs = {}
+        if self._params.user_aggregator_params:
+            kwargs["user_params"] = self._params.user_aggregator_params
+        if self._params.assistant_aggregator_params:
+            kwargs["assistant_params"] = self._params.assistant_aggregator_params
+        return LLMContextAggregatorPair(self._params.context, **kwargs)
 
     def _wire_aggregator_events(self, user_agg, assistant_agg):
         @user_agg.event_handler("on_user_turn_started")

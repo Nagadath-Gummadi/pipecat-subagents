@@ -6,7 +6,8 @@
 
 """Agent runner package."""
 
-from pipecat_agents.runner.runner import AgentRunner, UserAgentParams
+from pipecat_agents.runner.runner import AgentRunner
+from pipecat_agents.runner.user_agent import UserAgentParams
 
 __all__ = [
     "AgentRunner",
