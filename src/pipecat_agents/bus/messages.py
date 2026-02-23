@@ -91,14 +91,32 @@ class BusAgentRegisteredMessage(BusMessage):
 
 
 @dataclass
+class AgentActivatedArgs:
+    """Arguments passed to an agent on activation.
+
+    Carried by `BusStartAgentMessage` and forwarded to the
+    ``on_agent_activated`` event handler.
+
+    Parameters:
+        messages: LLM context messages to inject on start (e.g. to
+            tell the agent why it was activated or transferred to).
+    """
+
+    messages: Optional[list] = None
+
+
+@dataclass
 class BusStartAgentMessage(BusMessage):
     """Tells a targeted agent to become active and start processing.
 
     Sent by the runner (via `activate_agent`) or by another agent
     (via `transfer_to`).
+
+    Parameters:
+        args: Optional start arguments forwarded to ``on_agent_activated``.
     """
 
-    pass
+    args: Optional[AgentActivatedArgs] = None
 
 
 @dataclass

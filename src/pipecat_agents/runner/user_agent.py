@@ -103,7 +103,7 @@ class UserAgent(BaseAgent):
         super().__init__(
             USER_AGENT_NAME,
             bus=bus,
-            enabled=True,
+            active=True,
             enable_bus_output=False,
             enable_rtvi=True,
             pipeline_params=params.pipeline_params,

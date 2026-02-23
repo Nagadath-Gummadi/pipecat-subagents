@@ -22,6 +22,7 @@ from pipecat_flows.types import FlowsDirectFunction
 
 from pipecat_agents.agents.base_agent import BaseAgent
 from pipecat_agents.bus import AgentBus
+from pipecat_agents.bus.messages import AgentActivatedArgs, BusUserTurnStartedMessage
 
 
 class FlowsAgent(BaseAgent):
@@ -32,6 +33,21 @@ class FlowsAgent(BaseAgent):
     The `FlowManager` is created when the pipeline task is built. On agent
     start, it is initialized with the node returned by `build_initial_node()`.
     Turn detection and context aggregation live in the `UserAgent`.
+
+    Event handlers:
+
+    on_agent_activated(agent, args)
+        Initializes the `FlowManager` with `build_initial_node()` on the
+        first activation, or resumes with `build_resume_node()` on
+        subsequent activations.
+
+    Example::
+
+        class MyFlowsAgent(FlowsAgent):
+            @FlowsAgent.event_handler("on_agent_activated")
+            async def on_agent_activated(self, agent, args: Optional[AgentActivatedArgs]):
+                # Custom activation logic before flow initialization
+                ...
     """
 
     def __init__(
@@ -42,7 +58,7 @@ class FlowsAgent(BaseAgent):
         context_aggregator: LLMContextAggregatorPair,
         context_strategy: Optional[ContextStrategyConfig] = None,
         global_functions: Optional[List[FlowsFunctionSchema | FlowsDirectFunction]] = None,
-        enabled: bool = False,
+        active: bool = False,
         pipeline_params: Optional[PipelineParams] = None,
     ):
         """Initialize the FlowsAgent.
@@ -56,10 +72,10 @@ class FlowsAgent(BaseAgent):
                 `FlowManager`.
             global_functions: Optional list of functions available at every
                 node, forwarded to `FlowManager`.
-            enabled: Whether the agent starts enabled. Defaults to False.
+            active: Whether the agent starts active. Defaults to False.
             pipeline_params: Optional `PipelineParams` for this agent's task.
         """
-        super().__init__(name, bus=bus, enabled=enabled, pipeline_params=pipeline_params)
+        super().__init__(name, bus=bus, active=active, pipeline_params=pipeline_params)
         self._context_aggregator = context_aggregator
         self._context_strategy = context_strategy
         self._global_functions = global_functions
@@ -67,8 +83,8 @@ class FlowsAgent(BaseAgent):
         self._flow_manager: Optional[FlowManager] = None
         self._flow_initialized = False
 
-        @self.event_handler("on_agent_started")
-        async def on_agent_started(agent):
+        @self.event_handler("on_agent_activated")
+        async def on_agent_activated(agent, args: Optional[AgentActivatedArgs]):
             if not self._flow_initialized:
                 self._flow_initialized = True
                 await self._flow_manager.initialize(self.build_initial_node())
@@ -82,12 +98,20 @@ class FlowsAgent(BaseAgent):
 
     @abstractmethod
     def build_llm(self) -> LLMService:
-        """Return the LLM service for this agent's pipeline."""
+        """Return the LLM service for this agent's pipeline.
+
+        Returns:
+            The configured `LLMService` instance.
+        """
         pass
 
     @abstractmethod
     def build_initial_node(self) -> NodeConfig:
-        """Return the initial flow node configuration."""
+        """Return the initial flow node configuration.
+
+        Returns:
+            A `NodeConfig` describing the first node of the flow.
+        """
         pass
 
     def build_resume_node(self) -> NodeConfig:
@@ -96,11 +120,18 @@ class FlowsAgent(BaseAgent):
         Called on subsequent activations (after the first). Override to
         resume from a specific point in the flow based on ``flow_manager.state``.
         Defaults to restarting the flow from the initial node.
+
+        Returns:
+            A `NodeConfig` for the resumption point.
         """
         return self.build_initial_node()
 
     def build_pipeline_processors(self) -> List[FrameProcessor]:
-        """Return the LLM service as the sole pipeline processor."""
+        """Return the LLM service as the sole pipeline processor.
+
+        Returns:
+            A single-element list containing the `LLMService`.
+        """
         # This is guaranteed to exist because we create it in
         # `create_pipeline_task()`.
         return [self._llm]

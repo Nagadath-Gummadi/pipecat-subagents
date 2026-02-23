@@ -26,6 +26,7 @@ FunctionCallResultCallback = Callable[..., Any]
 
 from pipecat_agents.bus import (
     AgentBus,
+    AgentActivatedArgs,
     BusAddAgentMessage,
     BusAgentRegisteredMessage,
     BusCancelMessage,
@@ -44,6 +45,30 @@ class BaseAgent(BaseObject):
     Bus messages are received by subscribing to the bus `on_message` event;
     `BusFrameMessage` frames are queued directly to the agent's pipeline task,
     while other messages are dispatched to `on_bus_message()`.
+
+    Event handlers:
+
+        on_agent_started(agent): Fired once when the agent's pipeline is
+            ready. Use for one-time setup.
+
+        on_agent_activated(agent, args): Fired each time the agent is
+            activated via `BusStartAgentMessage` (or created with
+            ``active=True``). Receives the optional `AgentActivatedArgs`.
+
+        on_agent_deactivated(agent): Fired when `stop_agent()` is called
+            and the agent is deactivated.
+
+        on_bus_message(agent, message): Fired for non-frame bus messages after
+            default lifecycle handling. Override `on_bus_message()` for custom
+            dispatch instead of using this event.
+
+    Example::
+
+        agent = MyAgent(name="my_agent", bus=bus)
+
+        @agent.event_handler("on_agent_activated")
+        async def on_activated(agent, args: Optional[AgentActivatedArgs]):
+            logger.info(f"Agent activated with args: {args}")
     """
 
     def __init__(
@@ -51,7 +76,7 @@ class BaseAgent(BaseObject):
         name: str,
         *,
         bus: AgentBus,
-        enabled: bool = False,
+        active: bool = False,
         enable_bus_output: bool = True,
         enable_rtvi: bool = False,
         rtvi_processor: Optional[RTVIProcessor] = None,
@@ -65,7 +90,7 @@ class BaseAgent(BaseObject):
         Args:
             name: Unique name for this agent.
             bus: The `AgentBus` for inter-agent communication.
-            enabled: Whether the agent starts enabled. Defaults to False.
+            active: Whether the agent starts active. Defaults to False.
             enable_bus_output: Whether to append a `BusOutputProcessor` to the
                 pipeline. Defaults to True.
             enable_rtvi: Whether to enable RTVI on the pipeline task.
@@ -74,10 +99,14 @@ class BaseAgent(BaseObject):
             rtvi_observer_params: Optional `RTVIObserverParams` for the
                 pipeline task.
             pipeline_params: Optional `PipelineParams` for this agent's task.
+            cancel_on_idle_timeout: Whether to cancel the pipeline task when
+                idle timeout is reached. Defaults to False.
+            cancel_timeout_secs: Seconds to wait for graceful cancellation
+                before forcing. Defaults to `CANCEL_TIMEOUT_SECS`.
         """
         super().__init__(name=name)
         self._bus = bus
-        self._enabled = enabled
+        self._active = active
         self._enable_bus_output = enable_bus_output
         self._enable_rtvi = enable_rtvi
         self._rtvi_processor = rtvi_processor
@@ -87,10 +116,12 @@ class BaseAgent(BaseObject):
         self._cancel_timeout_secs = cancel_timeout_secs
         self._task: Optional[PipelineTask] = None
         self._pipeline_started = False
-        self._pending_start = False
+        self._pending_activation = False
+        self._pending_activation_args: Optional[AgentActivatedArgs] = None
 
         self._register_event_handler("on_agent_started", sync=True)
-        self._register_event_handler("on_agent_stopped", sync=True)
+        self._register_event_handler("on_agent_activated", sync=True)
+        self._register_event_handler("on_agent_deactivated", sync=True)
         self._register_event_handler("on_bus_message", sync=True)
 
         @bus.event_handler("on_message")
@@ -98,9 +129,9 @@ class BaseAgent(BaseObject):
             await self._handle_bus_message(message)
 
     @property
-    def enabled(self) -> bool:
-        """Whether this agent is enabled and processing frames."""
-        return self._enabled
+    def active(self) -> bool:
+        """Whether this agent is active and processing frames."""
+        return self._active
 
     @property
     def task(self) -> PipelineTask:
@@ -110,18 +141,26 @@ class BaseAgent(BaseObject):
         return self._task
 
     async def send_message(self, message: BusMessage) -> None:
-        """Send a message to the bus."""
+        """Send a message to the bus.
+
+        Args:
+            message: The `BusMessage` to publish on the agent bus.
+        """
         await self._bus.send(message)
 
     async def add_agent(self, agent: "BaseAgent") -> None:
-        """Request the local runner to add a new agent."""
+        """Request the local runner to add a new agent.
+
+        Args:
+            agent: The `BaseAgent` instance to register with the runner.
+        """
         await self.send_message(BusAddAgentMessage(source=self.name, agent=agent))
 
     async def stop_agent(self) -> None:
-        """Disable this agent."""
-        logger.debug(f"Agent '{self}': stopped")
-        self._enabled = False
-        await self._call_event_handler("on_agent_stopped")
+        """Deactivate this agent."""
+        logger.debug(f"Agent '{self}': deactivated")
+        self._active = False
+        await self._call_event_handler("on_agent_deactivated")
 
     async def cancel(self) -> None:
         """Broadcast a hard cancel to all agents via the bus."""
@@ -135,6 +174,7 @@ class BaseAgent(BaseObject):
         self,
         agent_name: str,
         *,
+        args: Optional[AgentActivatedArgs] = None,
         result_callback: Optional[FunctionCallResultCallback] = None,
     ) -> None:
         """Stop this agent and request transfer to the named agent.
@@ -145,6 +185,8 @@ class BaseAgent(BaseObject):
 
         Args:
             agent_name: The name of the agent to transfer to.
+            args: Optional `AgentActivatedArgs` forwarded to the target agent's
+                ``on_agent_activated`` handler.
             result_callback: The ``result_callback`` from FunctionCallParams.
                 When provided, the transfer is sent after the function result
                 is added to the context (via ``on_context_updated``).
@@ -165,7 +207,9 @@ class BaseAgent(BaseObject):
             await context_updated.wait()
 
         await self.stop_agent()
-        await self.send_message(BusStartAgentMessage(source=self.name, target=agent_name))
+        await self.send_message(
+            BusStartAgentMessage(source=self.name, target=agent_name, args=args)
+        )
 
     @abstractmethod
     def build_pipeline_processors(self) -> List[FrameProcessor]:
@@ -216,7 +260,8 @@ class BaseAgent(BaseObject):
             await self.send_message(
                 BusAgentRegisteredMessage(source=self.name, agent_name=self.name)
             )
-            await self._maybe_start_agent()
+            await self._call_event_handler("on_agent_started")
+            await self._maybe_activate()
 
         @self._task.event_handler("on_pipeline_finished")
         async def on_pipeline_canceled(task, frame):
@@ -226,36 +271,47 @@ class BaseAgent(BaseObject):
         return self._task
 
     async def queue_frame(self, frame) -> None:
-        """Queue a frame into this agent's pipeline."""
+        """Queue a frame into this agent's pipeline.
+
+        Args:
+            frame: The frame to inject into the pipeline task's queue.
+        """
         if self._task:
             await self._task.queue_frame(frame)
 
     async def on_bus_message(self, message: BusMessage) -> None:
         """Handle non-frame bus messages.
 
-        Override to handle custom bus messages. Called for any BusMessage
-        that is not a BusFrameMessage (those are queued as pipeline frames).
+        Override to handle custom bus messages. Called for any `BusMessage`
+        that is not a `BusFrameMessage` (those are queued as pipeline frames).
+        The default implementation handles `BusStartAgentMessage` (deferred
+        start) and `BusCancelMessage` (task cancellation).
 
-        Default implementation handles lifecycle messages.
+        Args:
+            message: The `BusMessage` to handle.
         """
         if isinstance(message, BusStartAgentMessage):
-            self._pending_start = True
-            await self._maybe_start_agent()
+            self._pending_activation_args = message.args
+            self._pending_activation = True
+            await self._maybe_activate()
         elif isinstance(message, BusCancelMessage):
             logger.debug(f"Agent '{self}': received cancel, cancelling task")
             if self._task:
                 await self._task.cancel()
 
-    async def _maybe_start_agent(self) -> None:
-        """Enable the agent and fire on_agent_started.
+    async def _maybe_activate(self) -> None:
+        """Activate the agent and fire on_agent_activated.
 
         Called when the pipeline is ready and a start has been requested.
+        Passes any `AgentActivatedArgs` from the activation to the event handler.
         """
-        if self._pipeline_started and self._pending_start:
-            logger.debug(f"Agent '{self}': started")
-            self._enabled = True
-            self._pending_start = False
-            await self._call_event_handler("on_agent_started")
+        if self._pipeline_started and self._pending_activation:
+            logger.debug(f"Agent '{self}': activated")
+            self._active = True
+            self._pending_activation = False
+            args = self._pending_activation_args
+            self._pending_activation_args = None
+            await self._call_event_handler("on_agent_activated", args)
 
     async def _handle_bus_message(self, message: BusMessage) -> None:
         """Handle a raw bus message: filter, queue frames, dispatch others."""
@@ -267,7 +323,7 @@ class BaseAgent(BaseObject):
             return
 
         if isinstance(message, BusFrameMessage):
-            if self._enabled:
+            if self._active:
                 await self.queue_frame(message.frame)
         else:
             await self.on_bus_message(message)

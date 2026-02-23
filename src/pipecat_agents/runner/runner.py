@@ -18,6 +18,7 @@ from pipecat.utils.base_object import BaseObject
 from pipecat_agents.agents.base_agent import BaseAgent
 from pipecat_agents.bus import (
     AgentBus,
+    AgentActivatedArgs,
     BusAddAgentMessage,
     BusAssistantTurnStartedMessage,
     BusAssistantTurnStoppedMessage,
@@ -40,6 +41,43 @@ class AgentRunner(BaseObject):
     `PipelineRunner`. The user agent (transport bridge) is created
     internally from `UserAgentParams`; other agents are added via
     `add_agent()`.
+
+    Event handlers:
+
+    on_runner_started(runner)
+        Fired after all registered agents have been started.
+
+    on_client_connected(runner, client)
+        Fired when a client connects to the transport.
+
+    on_client_disconnected(runner, client)
+        Fired when a client disconnects from the transport.
+
+    on_user_turn_started(runner)
+        Fired when the user begins speaking.
+
+    on_user_turn_stopped(runner, message)
+        Fired when the user stops speaking. The message is a
+        `UserTurnStoppedMessage`.
+
+    on_assistant_turn_started(runner)
+        Fired when the assistant begins responding.
+
+    on_assistant_turn_stopped(runner, message)
+        Fired when the assistant stops responding. The message is an
+        `AssistantTurnStoppedMessage`.
+
+    Example::
+
+        runner = AgentRunner(user_agent_params=params)
+
+        @runner.event_handler("on_runner_started")
+        async def on_started(runner):
+            await runner.activate_agent("greeter")
+
+        @runner.event_handler("on_client_disconnected")
+        async def on_disconnected(runner, client):
+            await runner.cancel("client left")
     """
 
     def __init__(
@@ -117,13 +155,19 @@ class AgentRunner(BaseObject):
         if self._running:
             await self._start_agent_task(agent)
 
-    async def activate_agent(self, name: str) -> None:
+    async def activate_agent(
+        self, name: str, *, args: Optional[AgentActivatedArgs] = None
+    ) -> None:
         """Send a `BusStartAgentMessage` to the named agent.
 
         Args:
             name: Name of the agent to activate.
+            args: Optional `AgentActivatedArgs` forwarded to the agent's
+                ``on_agent_activated`` handler.
         """
-        await self._bus.send(BusStartAgentMessage(source="", target=name))
+        await self._bus.send(
+            BusStartAgentMessage(source="", target=name, args=args)
+        )
 
     async def run(self) -> None:
         """Start all agents, block until cancelled.

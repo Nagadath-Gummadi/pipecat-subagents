@@ -22,8 +22,15 @@ class AgentBus(BaseObject):
     the on_message event and filter messages themselves.
 
     Events:
-        - on_message(bus, message: BusMessage): fired for every message
-          sent through the bus. Subscribers filter by source/target.
+        on_message(bus, message: BusMessage): Fired for every message sent
+            through the bus. Subscribers filter by source/target.
+
+    Example::
+
+        @bus.event_handler("on_message")
+        async def on_message(bus, message: BusMessage):
+            if message.target == self._name:
+                await self._handle(message)
     """
 
     def __init__(self, **kwargs):
