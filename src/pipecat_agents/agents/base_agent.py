@@ -15,7 +15,7 @@ from abc import abstractmethod
 from typing import Any, Callable, List, Optional
 
 from loguru import logger
-from pipecat.frames.frames import CancelFrame, FunctionCallResultProperties, StartFrame
+from pipecat.frames.frames import CancelFrame, EndFrame, FunctionCallResultProperties, StartFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.task import CANCEL_TIMEOUT_SECS, PipelineParams, PipelineTask
 from pipecat.processors.frame_processor import FrameProcessor
@@ -30,6 +30,7 @@ from pipecat_agents.bus import (
     BusAddAgentMessage,
     BusAgentRegisteredMessage,
     BusCancelMessage,
+    BusEndAgentMessage,
     BusEndMessage,
     BusFrameMessage,
     BusMessage,
@@ -317,7 +318,8 @@ class BaseAgent(BaseObject):
         Override to handle custom bus messages. Called for any `BusMessage`
         that is not a `BusFrameMessage` (those are queued as pipeline frames).
         The default implementation handles `BusStartAgentMessage` (deferred
-        start) and `BusCancelMessage` (task cancellation).
+        start), `BusEndAgentMessage` (graceful pipeline end), and
+        `BusCancelMessage` (task cancellation).
 
         Args:
             message: The `BusMessage` to handle.
@@ -326,6 +328,10 @@ class BaseAgent(BaseObject):
             self._pending_activation_args = message.args
             self._pending_activation = True
             await self._maybe_activate()
+        elif isinstance(message, BusEndAgentMessage):
+            logger.debug(f"Agent '{self}': received end, ending pipeline")
+            if self._task:
+                await self._task.queue_frame(EndFrame())
         elif isinstance(message, BusCancelMessage):
             logger.debug(f"Agent '{self}': received cancel, cancelling task")
             if self._task:

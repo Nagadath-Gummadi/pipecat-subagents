@@ -121,7 +121,9 @@ class BusStartAgentMessage(BusMessage):
 
 @dataclass
 class BusCancelMessage(BusMessage):
-    """Runner broadcasts hard cancel to all agents.
+    """Hard cancel broadcast — all agents cancel their pipeline tasks.
+
+    Sent by the runner or by an agent to abort the entire session.
 
     Parameters:
         reason: Optional human-readable reason for the cancellation.
@@ -132,7 +134,24 @@ class BusCancelMessage(BusMessage):
 
 @dataclass
 class BusEndMessage(BusMessage):
-    """Request a graceful end — pipelines flush before shutting down.
+    """Request a graceful end of the session.
+
+    Sent by an agent to the runner (untargeted). The runner orchestrates
+    the shutdown by sending targeted `BusEndAgentMessage` to each agent.
+
+    Parameters:
+        reason: Optional human-readable reason for ending.
+    """
+
+    reason: Optional[str] = None
+
+
+@dataclass
+class BusEndAgentMessage(BusMessage):
+    """Tells a targeted agent to end its pipeline gracefully.
+
+    Sent by the runner to individual agents during shutdown. The agent
+    queues an `EndFrame` to flush in-flight work before stopping.
 
     Parameters:
         reason: Optional human-readable reason for ending.

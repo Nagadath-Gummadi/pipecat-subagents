@@ -10,7 +10,6 @@ import asyncio
 from typing import Optional
 
 from loguru import logger
-from pipecat.frames.frames import EndFrame
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.processors.aggregators.llm_response_universal import LLMContextAggregatorPair
 from pipecat.utils.base_object import BaseObject
@@ -25,6 +24,7 @@ from pipecat_agents.bus import (
     BusCancelMessage,
     BusClientConnectedMessage,
     BusClientDisconnectedMessage,
+    BusEndAgentMessage,
     BusEndMessage,
     BusMessage,
     BusStartAgentMessage,
@@ -155,9 +155,7 @@ class AgentRunner(BaseObject):
         if self._running:
             await self._start_agent_task(agent)
 
-    async def activate_agent(
-        self, name: str, *, args: Optional[AgentActivatedArgs] = None
-    ) -> None:
+    async def activate_agent(self, name: str, *, args: Optional[AgentActivatedArgs] = None) -> None:
         """Send a `BusStartAgentMessage` to the named agent.
 
         Args:
@@ -165,16 +163,14 @@ class AgentRunner(BaseObject):
             args: Optional `AgentActivatedArgs` forwarded to the agent's
                 ``on_agent_activated`` handler.
         """
-        await self._bus.send(
-            BusStartAgentMessage(source="", target=name, args=args)
-        )
+        await self._bus.send(BusStartAgentMessage(source=self.name, target=name, args=args))
 
     async def run(self) -> None:
-        """Start all agents, block until cancelled.
+        """Start all agents, block until shutdown.
 
-        Starts all registered agents, fires on_runner_started, then blocks
-        until cancel() is called. New agents can be added dynamically via
-        add_agent() after run() has started.
+        Starts all registered agents, fires ``on_runner_started``, then blocks
+        until `end()` or `cancel()` is called. New agents can be added
+        dynamically via `add_agent()` after ``run()`` has started.
         """
         self._running = True
         self._shutdown_event.clear()
@@ -195,16 +191,15 @@ class AgentRunner(BaseObject):
     async def end(self, reason: Optional[str] = None) -> None:
         """Gracefully end all agent pipelines and shut down.
 
-        Queues an `EndFrame` to every running agent task so each pipeline
-        flushes in-flight work (TTS, audio buffers) before stopping.
+        Sends `BusEndAgentMessage` to each non-user agent and waits for
+        their pipelines to finish. Then ends the user agent so in-flight
+        responses (TTS, audio) are fully delivered before shutdown.
 
         Args:
             reason: Optional human-readable reason for ending.
         """
         logger.info(f"AgentRunner: ending gracefully (reason={reason})")
-        for agent in self._agents.values():
-            if agent.task:
-                await agent.task.queue_frame(EndFrame())
+        await self._end_agents(reason)
         self._shutdown_event.set()
 
     async def cancel(self, reason: Optional[str] = None) -> None:
@@ -213,14 +208,19 @@ class AgentRunner(BaseObject):
         Args:
             reason: Optional human-readable reason for cancelling.
         """
-        await self._bus.send(BusCancelMessage(source="", reason=reason))
+        logger.info(f"AgentRunner: cancelling (reason={reason})")
+        await self._bus.send(BusCancelMessage(source=self.name, reason=reason))
         await self._pipecat_runner.cancel()
         self._shutdown_event.set()
 
     async def _handle_bus_message(self, message: BusMessage) -> None:
         """Handle bus messages directed at the runner."""
+        if message.source == self.name:
+            return
         if isinstance(message, BusEndMessage):
-            await self.end(message.reason)
+            asyncio.create_task(self.end(message.reason))
+        elif isinstance(message, BusCancelMessage):
+            asyncio.create_task(self.cancel(message.reason))
         elif isinstance(message, BusAddAgentMessage) and message.agent:
             await self.add_agent(message.agent)
         elif isinstance(message, BusClientConnectedMessage):
@@ -250,3 +250,22 @@ class AgentRunner(BaseObject):
         """Remove a completed agent task from the running tasks dict."""
         name = task.get_name().removeprefix("agent_")
         self._running_agent_tasks.pop(name, None)
+
+    async def _end_agents(self, reason: Optional[str] = None) -> None:
+        """End non-user agents first, wait for their pipelines, then end user agent."""
+        non_user_tasks = []
+        for name, agent in self._agents.items():
+            if agent is self._user_agent:
+                continue
+            await self._bus.send(BusEndAgentMessage(source=self.name, target=name, reason=reason))
+            task = self._running_agent_tasks.get(name)
+            if task and not task.done():
+                non_user_tasks.append(task)
+
+        if non_user_tasks:
+            await asyncio.gather(*non_user_tasks, return_exceptions=True)
+
+        if self._user_agent:
+            await self._bus.send(
+                BusEndAgentMessage(source=self.name, target=self._user_agent.name, reason=reason)
+            )
