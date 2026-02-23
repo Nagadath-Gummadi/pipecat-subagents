@@ -60,6 +60,7 @@ class UserAgentParams(BaseModel):
             user aggregator.
         assistant_aggregator_params: Optional `LLMAssistantAggregatorParams`
             for the assistant aggregator.
+        audio_buffer: Optional audio buffer processor for recording.
         cancel_on_idle_timeout: Whether to cancel the pipeline on idle
             timeout. Defaults to True.
         cancel_timeout_secs: Timeout in seconds for pipeline cancellation.
@@ -75,6 +76,7 @@ class UserAgentParams(BaseModel):
     pipeline_params: Optional[PipelineParams] = None
     user_aggregator_params: Optional[LLMUserAggregatorParams] = None
     assistant_aggregator_params: Optional[LLMAssistantAggregatorParams] = None
+    audio_buffer: Optional[FrameProcessor] = None
     cancel_on_idle_timeout: bool = True
     cancel_timeout_secs: float = CANCEL_TIMEOUT_SECS
 
@@ -174,6 +176,10 @@ class UserAgent(BaseAgent):
 
         # Output transport
         processors.append(self._params.transport.output())
+
+        # Audio buffer (recording)
+        if self._params.audio_buffer:
+            processors.append(self._params.audio_buffer)
 
         # Assistant aggregator
         if assistant_agg:
