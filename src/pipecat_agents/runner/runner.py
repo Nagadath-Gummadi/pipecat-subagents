@@ -17,8 +17,8 @@ from pipecat.utils.base_object import BaseObject
 
 from pipecat_agents.agents.base_agent import BaseAgent
 from pipecat_agents.bus import (
-    AgentBus,
     AgentActivatedArgs,
+    AgentBus,
     BusAddAgentMessage,
     BusAssistantTurnStartedMessage,
     BusAssistantTurnStoppedMessage,

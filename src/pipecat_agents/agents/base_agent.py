@@ -25,8 +25,8 @@ from pipecat.utils.base_object import BaseObject
 FunctionCallResultCallback = Callable[..., Any]
 
 from pipecat_agents.bus import (
-    AgentBus,
     AgentActivatedArgs,
+    AgentBus,
     BusAddAgentMessage,
     BusAgentRegisteredMessage,
     BusCancelMessage,
@@ -166,8 +166,40 @@ class BaseAgent(BaseObject):
         """Broadcast a hard cancel to all agents via the bus."""
         await self.send_message(BusCancelMessage(source=self.name))
 
-    async def end(self) -> None:
-        """Request a graceful end of the entire session."""
+    async def end(
+        self,
+        *,
+        result: Optional[Any] = None,
+        result_callback: Optional[FunctionCallResultCallback] = None,
+    ) -> None:
+        """Request a graceful end of the entire session.
+
+        When called from a function handler, pass ``params.result_callback``
+        so the LLM generates a final response (e.g. goodbye) before the
+        session ends.
+
+        Args:
+            result: Optional value to commit as the function-call result.
+                Passed to `result_callback` before ending.
+            result_callback: The ``result_callback`` from `FunctionCallParams`.
+                When provided, the end message is sent after the LLM has
+                processed the result (via ``on_context_updated`` with
+                ``run_llm=True``).
+        """
+        if result_callback:
+            context_updated = asyncio.Event()
+
+            async def _on_context_updated():
+                context_updated.set()
+
+            await result_callback(
+                result,
+                properties=FunctionCallResultProperties(
+                    run_llm=True,
+                    on_context_updated=_on_context_updated,
+                ),
+            )
+            await context_updated.wait()
         await self.send_message(BusEndMessage(source=self.name))
 
     async def transfer_to(
@@ -198,7 +230,7 @@ class BaseAgent(BaseObject):
                 context_updated.set()
 
             await result_callback(
-                "Help the user with their latest request.",
+                None,
                 properties=FunctionCallResultProperties(
                     run_llm=False,
                     on_context_updated=_on_context_updated,
