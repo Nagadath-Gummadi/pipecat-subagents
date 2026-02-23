@@ -30,6 +30,7 @@ from pipecat_agents.bus import (
     BusStartAgentMessage,
     BusUserTurnStartedMessage,
     BusUserTurnStoppedMessage,
+    LocalAgentBus,
 )
 from pipecat_agents.runner.user_agent import UserAgent, UserAgentParams
 
@@ -98,7 +99,7 @@ class AgentRunner(BaseObject):
                 Defaults to True.
         """
         super().__init__()
-        self._bus = bus or AgentBus()
+        self._bus = bus or LocalAgentBus()
 
         self._running: bool = False
         self._agents: dict[str, BaseAgent] = {}
@@ -175,6 +176,8 @@ class AgentRunner(BaseObject):
         self._running = True
         self._shutdown_event.clear()
 
+        await self._bus.start()
+
         for agent in self._agents.values():
             await self._start_agent_task(agent)
 
@@ -186,6 +189,8 @@ class AgentRunner(BaseObject):
         remaining = [t for t in self._running_agent_tasks.values() if not t.done()]
         if remaining:
             await asyncio.gather(*remaining, return_exceptions=True)
+
+        await self._bus.stop()
         self._running = False
 
     async def end(self, reason: Optional[str] = None) -> None:
