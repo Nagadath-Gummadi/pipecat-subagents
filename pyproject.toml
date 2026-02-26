@@ -1,0 +1,74 @@
+[build-system]
+requires = ["setuptools>=64", "setuptools_scm>=8"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pipecat-ai-agents"
+dynamic = ["version"]
+description = "A Pipecat Framework for Distributed Multi-Agents"
+license = { text = "BSD 2-Clause License" }
+readme = "README.md"
+requires-python = ">=3.10"
+keywords = ["pipecat", "agents", "distributed", "ai"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: BSD License",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Communications :: Conferencing",
+    "Topic :: Multimedia :: Sound/Audio",
+]
+dependencies = [
+    "pipecat-ai-flows>=0.0.22",
+    "pipecat-ai>=0.0.103",
+]
+
+[project.urls]
+Source = "https://github.com/pipecat-ai/pipecat-agents"
+Website = "https://www.pipecat.ai"
+
+[dependency-groups]
+dev = [
+    "build~=1.2.2",
+    "pip-tools~=7.4.1",
+    "pre-commit~=4.2.0",
+    "pyright~=1.1.402",
+    "pytest~=8.4.1",
+    "pytest-asyncio~=1.0.0",
+    "pytest-aiohttp==1.1.0",
+    "pytest-cov~=4.1.0",
+    "ruff~=0.12.1",
+    "setuptools~=78.1.1",
+    "setuptools_scm~=8.3.1",
+    "python-dotenv>=1.0.1,<2.0.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+exclude = [".git"]
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "D", # Docstring rules
+    "I", # Import rules
+]
+ignore = [
+    "D105",  # Missing docstring in magic methods (__str__, __repr__, etc.)
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Skip docstring checks for non-source code
+"examples/**/*.py" = ["D"]
+"tests/**/*.py" = ["D"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.setuptools_scm]
+local_scheme = "no-local-version"
+fallback_version = "0.0.0-dev"
