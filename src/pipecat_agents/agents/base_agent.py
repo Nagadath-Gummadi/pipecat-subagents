@@ -199,7 +199,7 @@ class BaseAgent(BaseObject):
         )
 
     @abstractmethod
-    def build_pipeline_task(self) -> PipelineTask:
+    async def build_pipeline_task(self) -> PipelineTask:
         """Build and return a `PipelineTask` for this agent.
 
         Subclasses implement this to create their pipeline and task with
@@ -222,11 +222,12 @@ class BaseAgent(BaseObject):
         Returns:
             The registered `PipelineTask`.
         """
-        task = self.build_pipeline_task()
+        task = await self.build_pipeline_task()
         self._task = task
 
         @task.event_handler("on_pipeline_started")
         async def on_pipeline_started(task, frame: StartFrame):
+            logger.debug(f"Agent '{self}': pipeline started")
             self._pipeline_started = True
             await self.send_message(
                 BusAgentRegisteredMessage(source=self.name, agent_name=self.name)
@@ -236,6 +237,7 @@ class BaseAgent(BaseObject):
 
         @task.event_handler("on_pipeline_finished")
         async def on_pipeline_finished(task, frame):
+            logger.debug(f"Agent '{self}': pipeline finished ({frame})")
             if isinstance(frame, CancelFrame):
                 await self.cancel()
 

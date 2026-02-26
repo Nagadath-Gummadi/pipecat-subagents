@@ -129,7 +129,7 @@ class FlowsAgent(BaseAgent):
         """
         return self.build_initial_node()
 
-    def build_pipeline_task(self) -> PipelineTask:
+    async def build_pipeline_task(self) -> PipelineTask:
         """Build the pipeline task and create the `FlowManager`.
 
         Creates the LLM, a `BusOutputProcessor`, wraps them in a pipeline

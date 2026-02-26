@@ -110,7 +110,7 @@ class LLMAgent(BaseAgent):
         """
         pass
 
-    def build_pipeline_task(self) -> PipelineTask:
+    async def build_pipeline_task(self) -> PipelineTask:
         """Build the LLM pipeline and create a `PipelineTask`.
 
         Creates the LLM, a `BusOutputProcessor`, wraps them in a pipeline
