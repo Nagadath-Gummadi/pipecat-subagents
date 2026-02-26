@@ -6,7 +6,7 @@
 
 """Bidirectional bridge processor between a pipeline and the agent bus.
 
-Used by `UserAgent` to connect the input side (VAD/STT output) with the
+Used by the main agent to connect the input side (VAD/STT output) with the
 output side (TTS input) through the bus, enabling LLM agents to receive
 user input and send responses back.
 """

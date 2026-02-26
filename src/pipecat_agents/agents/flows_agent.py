@@ -13,16 +13,16 @@ for structured conversation flows (nodes, functions, transitions, actions).
 from abc import abstractmethod
 from typing import List, Optional
 
+from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.processors.aggregators.llm_response_universal import LLMContextAggregatorPair
-from pipecat.processors.frame_processor import FrameProcessor
 from pipecat.services.llm_service import LLMService
 from pipecat_flows import ContextStrategyConfig, FlowManager, FlowsFunctionSchema, NodeConfig
 from pipecat_flows.types import FlowsDirectFunction
 
 from pipecat_agents.agents.base_agent import BaseAgent
-from pipecat_agents.bus import AgentBus
-from pipecat_agents.bus.messages import AgentActivatedArgs, BusUserTurnStartedMessage
+from pipecat_agents.bus import AgentBus, BusOutputProcessor
+from pipecat_agents.bus.messages import AgentActivatedArgs
 
 
 class FlowsAgent(BaseAgent):
@@ -32,7 +32,7 @@ class FlowsAgent(BaseAgent):
 
     The `FlowManager` is created when the pipeline task is built. On agent
     start, it is initialized with the node returned by `build_initial_node()`.
-    Turn detection and context aggregation live in the `UserAgent`.
+    Turn detection and context aggregation live in the main agent.
 
     Event handlers:
 
@@ -55,6 +55,7 @@ class FlowsAgent(BaseAgent):
         name: str,
         *,
         bus: AgentBus,
+        parent: Optional[str] = None,
         context_aggregator: LLMContextAggregatorPair,
         context_strategy: Optional[ContextStrategyConfig] = None,
         global_functions: Optional[List[FlowsFunctionSchema | FlowsDirectFunction]] = None,
@@ -66,8 +67,9 @@ class FlowsAgent(BaseAgent):
         Args:
             name: Unique name for this agent.
             bus: The `AgentBus` for inter-agent communication.
+            parent: Optional name of the parent agent for end routing.
             context_aggregator: The `LLMContextAggregatorPair` from the
-                `UserAgent`, used by `FlowManager` for context tracking.
+                the main agent, used by `FlowManager` for context tracking.
             context_strategy: Optional context strategy forwarded to
                 `FlowManager`.
             global_functions: Optional list of functions available at every
@@ -75,7 +77,8 @@ class FlowsAgent(BaseAgent):
             active: Whether the agent starts active. Defaults to False.
             pipeline_params: Optional `PipelineParams` for this agent's task.
         """
-        super().__init__(name, bus=bus, active=active, pipeline_params=pipeline_params)
+        super().__init__(name, bus=bus, parent=parent, active=active)
+        self._pipeline_params = pipeline_params
         self._context_aggregator = context_aggregator
         self._context_strategy = context_strategy
         self._global_functions = global_functions
@@ -126,28 +129,26 @@ class FlowsAgent(BaseAgent):
         """
         return self.build_initial_node()
 
-    def build_pipeline_processors(self) -> List[FrameProcessor]:
-        """Return the LLM service as the sole pipeline processor.
-
-        Returns:
-            A single-element list containing the `LLMService`.
-        """
-        # This is guaranteed to exist because we create it in
-        # `create_pipeline_task()`.
-        return [self._llm]
-
-    async def create_pipeline_task(self) -> PipelineTask:
+    def build_pipeline_task(self) -> PipelineTask:
         """Build the pipeline task and create the `FlowManager`.
 
-        Calls `build_llm()` to get the LLM service, delegates to the parent
-        for pipeline construction, then creates a `FlowManager` and registers
-        the ``end_conversation`` action.
+        Creates the LLM, a `BusOutputProcessor`, wraps them in a pipeline
+        and task. Then creates a `FlowManager` and registers the
+        ``end_conversation`` action.
 
         Returns:
             The created `PipelineTask`.
         """
         self._llm = self.build_llm()
-        task = await super().create_pipeline_task()
+
+        bus_output = BusOutputProcessor(
+            bus=self._bus,
+            agent_name=self.name,
+            name=f"{self.name}::BusOutput",
+        )
+        pipeline = Pipeline([self._llm, bus_output])
+        task = PipelineTask(pipeline, params=self._pipeline_params or PipelineParams())
+
         self._flow_manager = FlowManager(
             task=task,
             llm=self._llm,

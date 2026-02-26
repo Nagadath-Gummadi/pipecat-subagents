@@ -11,29 +11,25 @@ subscription, pipeline creation, deferred start, and agent transfer.
 """
 
 from abc import abstractmethod
-from typing import List, Optional
+from typing import Optional
 
 from loguru import logger
 from pipecat.frames.frames import CancelFrame, EndFrame, StartFrame
-from pipecat.observers.base_observer import BaseObserver
-from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.task import CANCEL_TIMEOUT_SECS, PipelineParams, PipelineTask
-from pipecat.processors.frame_processor import FrameProcessor
-from pipecat.processors.frameworks.rtvi import RTVIObserverParams, RTVIProcessor
+from pipecat.pipeline.task import PipelineTask
 from pipecat.utils.base_object import BaseObject
 
 from pipecat_agents.bus import (
     AgentActivatedArgs,
     AgentBus,
+    BusActivateAgentMessage,
     BusAddAgentMessage,
     BusAgentRegisteredMessage,
+    BusCancelAgentMessage,
     BusCancelMessage,
     BusEndAgentMessage,
     BusEndMessage,
     BusFrameMessage,
     BusMessage,
-    BusOutputProcessor,
-    BusStartAgentMessage,
 )
 
 
@@ -51,10 +47,10 @@ class BaseAgent(BaseObject):
             ready. Use for one-time setup.
 
         on_agent_activated(agent, args): Fired each time the agent is
-            activated via `BusStartAgentMessage` (or created with
+            activated via `BusActivateAgentMessage` (or created with
             ``active=True``). Receives the optional `AgentActivatedArgs`.
 
-        on_agent_deactivated(agent): Fired when `stop_agent()` is called
+        on_agent_deactivated(agent): Fired when `deactivate_agent()` is called
             and the agent is deactivated.
 
         on_bus_message(agent, message): Fired for non-frame bus messages after
@@ -75,47 +71,23 @@ class BaseAgent(BaseObject):
         name: str,
         *,
         bus: AgentBus,
+        parent: Optional[str] = None,
         active: bool = False,
-        enable_bus_output: bool = True,
-        enable_rtvi: bool = False,
-        rtvi_processor: Optional[RTVIProcessor] = None,
-        rtvi_observer_params: Optional[RTVIObserverParams] = None,
-        pipeline_params: Optional[PipelineParams] = None,
-        observers: Optional[List[BaseObserver]] = None,
-        cancel_on_idle_timeout: bool = False,
-        cancel_timeout_secs: float = CANCEL_TIMEOUT_SECS,
     ):
         """Initialize the BaseAgent.
 
         Args:
             name: Unique name for this agent.
             bus: The `AgentBus` for inter-agent communication.
+            parent: Optional name of the parent agent. When set, ``end()``
+                sends a targeted `BusEndAgentMessage` to the parent instead
+                of an untargeted `BusEndMessage`.
             active: Whether the agent starts active. Defaults to False.
-            enable_bus_output: Whether to append a `BusOutputProcessor` to the
-                pipeline. Defaults to True.
-            enable_rtvi: Whether to enable RTVI on the pipeline task.
-                Defaults to False.
-            rtvi_processor: Optional `RTVIProcessor` for the pipeline task.
-            rtvi_observer_params: Optional `RTVIObserverParams` for the
-                pipeline task.
-            pipeline_params: Optional `PipelineParams` for this agent's task.
-            observers: Optional list of `BaseObserver` instances for monitoring.
-            cancel_on_idle_timeout: Whether to cancel the pipeline task when
-                idle timeout is reached. Defaults to False.
-            cancel_timeout_secs: Seconds to wait for graceful cancellation
-                before forcing. Defaults to `CANCEL_TIMEOUT_SECS`.
         """
         super().__init__(name=name)
         self._bus = bus
+        self._parent = parent
         self._active = active
-        self._enable_bus_output = enable_bus_output
-        self._enable_rtvi = enable_rtvi
-        self._rtvi_processor = rtvi_processor
-        self._rtvi_observer_params = rtvi_observer_params
-        self._pipeline_params = pipeline_params or PipelineParams()
-        self._observers = observers
-        self._cancel_on_idle_timeout = cancel_on_idle_timeout
-        self._cancel_timeout_secs = cancel_timeout_secs
         self._task: Optional[PipelineTask] = None
         self._pipeline_started = False
         self._pending_activation = False
@@ -158,7 +130,7 @@ class BaseAgent(BaseObject):
         """
         await self.send_message(BusAddAgentMessage(source=self.name, agent=agent))
 
-    async def stop_agent(self) -> None:
+    async def deactivate_agent(self) -> None:
         """Deactivate this agent."""
         logger.debug(f"Agent '{self}': deactivated")
         self._active = False
@@ -169,16 +141,23 @@ class BaseAgent(BaseObject):
         await self.send_message(BusCancelMessage(source=self.name))
 
     async def end(self, *, reason: Optional[str] = None) -> None:
-        """Request a graceful end of the entire session.
+        """Request a graceful end of the session.
 
-        Sends a `BusEndMessage` to the bus. The runner handles the
-        shutdown sequence.
+        When a parent is set, sends a targeted `BusEndAgentMessage` to
+        the parent, letting it orchestrate shutdown of its sub-agents.
+        Without a parent, sends an untargeted `BusEndMessage` handled
+        by the runner.
 
         Args:
             reason: Optional human-readable reason for ending (e.g.
                 "customer said goodbye").
         """
-        await self.send_message(BusEndMessage(source=self.name, reason=reason))
+        if self._parent:
+            await self.send_message(
+                BusEndAgentMessage(source=self.name, target=self._parent, reason=reason)
+            )
+        else:
+            await self.send_message(BusEndMessage(source=self.name, reason=reason))
 
     async def transfer_to(
         self,
@@ -193,56 +172,60 @@ class BaseAgent(BaseObject):
             args: Optional `AgentActivatedArgs` forwarded to the target agent's
                 ``on_agent_activated`` handler.
         """
-        await self.stop_agent()
+        await self.deactivate_agent()
         await self.send_message(
-            BusStartAgentMessage(source=self.name, target=agent_name, args=args)
+            BusActivateAgentMessage(source=self.name, target=agent_name, args=args)
+        )
+
+    async def activate_agent(
+        self,
+        agent_name: str,
+        *,
+        args: Optional[AgentActivatedArgs] = None,
+    ) -> None:
+        """Activate another agent without stopping this one.
+
+        Unlike ``transfer_to()``, this does not deactivate the current agent.
+        Use this from a main agent to start sub-agents (e.g. activate a router
+        on client connect).
+
+        Args:
+            agent_name: The name of the agent to activate.
+            args: Optional `AgentActivatedArgs` forwarded to the target agent's
+                ``on_agent_activated`` handler.
+        """
+        await self.send_message(
+            BusActivateAgentMessage(source=self.name, target=agent_name, args=args)
         )
 
     @abstractmethod
-    def build_pipeline_processors(self) -> List[FrameProcessor]:
-        """Return the list of FrameProcessors for this agent's pipeline.
+    def build_pipeline_task(self) -> PipelineTask:
+        """Build and return a `PipelineTask` for this agent.
 
-        Do NOT include the `BusOutputProcessor` — it is appended
-        automatically when `enable_bus_output` is True.
-
-        Returns:
-            Ordered list of processors for the pipeline.
-        """
-        pass
-
-    async def create_pipeline_task(self) -> PipelineTask:
-        """Build the agent's pipeline and create a `PipelineTask`.
-
-        Appends a `BusOutputProcessor` when `enable_bus_output` is True.
-        When the pipeline starts, sends a `BusAgentRegisteredMessage` to
-        announce this agent is available on the bus.
+        Subclasses implement this to create their pipeline and task with
+        whatever params they need. Lifecycle registration is handled
+        automatically by `create_pipeline_task()`.
 
         Returns:
             The created `PipelineTask`.
         """
-        bus_output = BusOutputProcessor(
-            bus=self._bus,
-            agent_name=self.name,
-            name=f"{self.name}::BusOutput",
-        )
+        pass
 
-        processors = self.build_pipeline_processors()
-        if self._enable_bus_output:
-            processors.append(bus_output)
-        pipeline = Pipeline(processors)
+    async def create_pipeline_task(self) -> PipelineTask:
+        """Create the agent's pipeline task and register lifecycle events.
 
-        self._task = PipelineTask(
-            pipeline,
-            params=self._pipeline_params,
-            enable_rtvi=self._enable_rtvi,
-            rtvi_processor=self._rtvi_processor,
-            rtvi_observer_params=self._rtvi_observer_params,
-            observers=self._observers,
-            cancel_on_idle_timeout=self._cancel_on_idle_timeout,
-            cancel_timeout_secs=self._cancel_timeout_secs,
-        )
+        Calls `build_pipeline_task()` to get the task from the subclass,
+        then wires up pipeline start (sends `BusAgentRegisteredMessage`,
+        fires ``on_agent_started``, triggers deferred activation) and
+        pipeline finish (cancel propagation on `CancelFrame`).
 
-        @self._task.event_handler("on_pipeline_started")
+        Returns:
+            The registered `PipelineTask`.
+        """
+        task = self.build_pipeline_task()
+        self._task = task
+
+        @task.event_handler("on_pipeline_started")
         async def on_pipeline_started(task, frame: StartFrame):
             self._pipeline_started = True
             await self.send_message(
@@ -251,12 +234,12 @@ class BaseAgent(BaseObject):
             await self._call_event_handler("on_agent_started")
             await self._maybe_activate()
 
-        @self._task.event_handler("on_pipeline_finished")
-        async def on_pipeline_canceled(task, frame):
+        @task.event_handler("on_pipeline_finished")
+        async def on_pipeline_finished(task, frame):
             if isinstance(frame, CancelFrame):
                 await self.cancel()
 
-        return self._task
+        return task
 
     async def queue_frame(self, frame) -> None:
         """Queue a frame into this agent's pipeline.
@@ -272,14 +255,14 @@ class BaseAgent(BaseObject):
 
         Override to handle custom bus messages. Called for any `BusMessage`
         that is not a `BusFrameMessage` (those are queued as pipeline frames).
-        The default implementation handles `BusStartAgentMessage` (deferred
+        The default implementation handles `BusActivateAgentMessage` (deferred
         start), `BusEndAgentMessage` (graceful pipeline end), and
         `BusCancelMessage` (task cancellation).
 
         Args:
             message: The `BusMessage` to handle.
         """
-        if isinstance(message, BusStartAgentMessage):
+        if isinstance(message, BusActivateAgentMessage):
             self._pending_activation_args = message.args
             self._pending_activation = True
             await self._maybe_activate()
@@ -287,7 +270,7 @@ class BaseAgent(BaseObject):
             logger.debug(f"Agent '{self}': received end, ending pipeline")
             if self._task:
                 await self._task.queue_frame(EndFrame(reason=message.reason))
-        elif isinstance(message, BusCancelMessage):
+        elif isinstance(message, BusCancelAgentMessage):
             logger.debug(f"Agent '{self}': received cancel, cancelling task")
             if self._task:
                 await self._task.cancel()

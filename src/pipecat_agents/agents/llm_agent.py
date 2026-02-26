@@ -22,12 +22,12 @@ from pipecat.frames.frames import (
     LLMMessagesAppendFrame,
     LLMSetToolsFrame,
 )
+from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.task import PipelineParams, PipelineTask
-from pipecat.processors.frame_processor import FrameProcessor
 from pipecat.services.llm_service import LLMService
 
 from pipecat_agents.agents.base_agent import BaseAgent
-from pipecat_agents.bus import AgentBus
+from pipecat_agents.bus import AgentBus, BusOutputProcessor
 from pipecat_agents.bus.messages import AgentActivatedArgs
 
 FunctionCallResultCallback = Callable[..., Any]
@@ -42,7 +42,7 @@ class LLMAgent(BaseAgent):
     messages passed via `activate_agent()` or `transfer_to()` to the
     LLM context.
 
-    Turn detection and context aggregation live in the `UserAgent`.
+    Turn detection and context aggregation live in the main agent.
 
     Event handlers:
 
@@ -64,6 +64,7 @@ class LLMAgent(BaseAgent):
         name: str,
         *,
         bus: AgentBus,
+        parent: Optional[str] = None,
         active: bool = False,
         pipeline_params: Optional[PipelineParams] = None,
     ):
@@ -72,10 +73,12 @@ class LLMAgent(BaseAgent):
         Args:
             name: Unique name for this agent.
             bus: The `AgentBus` for inter-agent communication.
+            parent: Optional name of the parent agent for end routing.
             active: Whether the agent starts active. Defaults to False.
             pipeline_params: Optional `PipelineParams` for this agent's task.
         """
-        super().__init__(name, bus=bus, active=active, pipeline_params=pipeline_params)
+        super().__init__(name, bus=bus, parent=parent, active=active)
+        self._pipeline_params = pipeline_params
         self._llm: Optional[LLMService] = None
 
         @self.event_handler("on_agent_activated")
@@ -107,20 +110,13 @@ class LLMAgent(BaseAgent):
         """
         pass
 
-    def build_pipeline_processors(self) -> List[FrameProcessor]:
-        """Return the LLM service as the sole pipeline processor.
+    def build_pipeline_task(self) -> PipelineTask:
+        """Build the LLM pipeline and create a `PipelineTask`.
 
-        Returns:
-            Single-element list containing the `LLMService` from `build_llm()`.
-        """
-        return [self._llm]
-
-    async def create_pipeline_task(self) -> PipelineTask:
-        """Build the LLM and delegate pipeline task creation to the parent.
-
-        Registers a persistent ``on_before_process_frame`` handler on the
-        LLM to signal when an `LLMContextFrame` arrives. Used by
-        `_commit_result_and_wait` to know when it is safe to proceed.
+        Creates the LLM, a `BusOutputProcessor`, wraps them in a pipeline
+        and task. Also registers a persistent ``on_before_process_frame``
+        handler on the LLM to signal when an `LLMContextFrame` arrives,
+        used by `_commit_result_and_wait`.
 
         Returns:
             The created `PipelineTask`.
@@ -133,7 +129,13 @@ class LLMAgent(BaseAgent):
             if isinstance(frame, LLMContextFrame):
                 self._context_frame_arrived.set()
 
-        return await super().create_pipeline_task()
+        bus_output = BusOutputProcessor(
+            bus=self._bus,
+            agent_name=self.name,
+            name=f"{self.name}::BusOutput",
+        )
+        pipeline = Pipeline([self._llm, bus_output])
+        return PipelineTask(pipeline, params=self._pipeline_params or PipelineParams())
 
     async def end(
         self,

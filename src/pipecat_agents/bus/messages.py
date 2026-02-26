@@ -94,7 +94,7 @@ class BusAgentRegisteredMessage(BusMessage):
 class AgentActivatedArgs:
     """Arguments passed to an agent on activation.
 
-    Carried by `BusStartAgentMessage` and forwarded to the
+    Carried by `BusActivateAgentMessage` and forwarded to the
     ``on_agent_activated`` event handler.
 
     Parameters:
@@ -106,14 +106,13 @@ class AgentActivatedArgs:
 
 
 @dataclass
-class BusStartAgentMessage(BusMessage):
+class BusActivateAgentMessage(BusMessage):
     """Tells a targeted agent to become active and start processing.
 
-    Sent by the runner (via `activate_agent`) or by another agent
-    (via `transfer_to`).
+    Sent by an agent via `activate_agent()` or `transfer_to()`.
 
     Parameters:
-        args: Optional start arguments forwarded to ``on_agent_activated``.
+        args: Optional activation arguments forwarded to ``on_agent_activated``.
     """
 
     args: Optional[AgentActivatedArgs] = None
@@ -121,9 +120,24 @@ class BusStartAgentMessage(BusMessage):
 
 @dataclass
 class BusCancelMessage(BusMessage):
-    """Hard cancel broadcast — all agents cancel their pipeline tasks.
+    """Request a hard cancel of the session.
 
-    Sent by the runner or by an agent to abort the entire session.
+    Sent by an agent to the runner (untargeted). The runner orchestrates
+    the cancellation by sending targeted `BusCancelAgentMessage` to each
+    agent.
+
+    Parameters:
+        reason: Optional human-readable reason for the cancellation.
+    """
+
+    reason: Optional[str] = None
+
+
+@dataclass
+class BusCancelAgentMessage(BusMessage):
+    """Tells a targeted agent to cancel its pipeline task.
+
+    Sent by the runner to individual agents during cancellation.
 
     Parameters:
         reason: Optional human-readable reason for the cancellation.
@@ -180,7 +194,7 @@ class BusAddAgentMessage(BusMessage, BusLocalMixin):
 class BusClientConnectedMessage(BusMessage, BusLocalMixin):
     """A client connected to the transport.
 
-    Sent by UserAgent, handled by the runner to emit on_client_connected.
+    Sent by the main agent, handled by the runner to emit on_client_connected.
 
     Parameters:
         client: The transport client that connected.
@@ -193,7 +207,7 @@ class BusClientConnectedMessage(BusMessage, BusLocalMixin):
 class BusClientDisconnectedMessage(BusMessage, BusLocalMixin):
     """A client disconnected from the transport.
 
-    Sent by UserAgent, handled by the runner to emit on_client_disconnected.
+    Sent by the main agent, handled by the runner to emit on_client_disconnected.
 
     Parameters:
         client: The transport client that disconnected.
