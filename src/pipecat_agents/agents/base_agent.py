@@ -19,7 +19,7 @@ from pipecat.pipeline.task import PipelineTask
 from pipecat.utils.base_object import BaseObject
 
 from pipecat_agents.bus import (
-    AgentActivatedArgs,
+    AgentActivationArgs,
     AgentBus,
     BusActivateAgentMessage,
     BusAddAgentMessage,
@@ -48,7 +48,7 @@ class BaseAgent(BaseObject):
 
         on_agent_activated(agent, args): Fired each time the agent is
             activated via `BusActivateAgentMessage` (or created with
-            ``active=True``). Receives the optional `AgentActivatedArgs`.
+            ``active=True``). Receives the optional `AgentActivationArgs`.
 
         on_agent_deactivated(agent): Fired when `deactivate_agent()` is called
             and the agent is deactivated.
@@ -62,7 +62,7 @@ class BaseAgent(BaseObject):
         agent = MyAgent(name="my_agent", bus=bus)
 
         @agent.event_handler("on_agent_activated")
-        async def on_activated(agent, args: Optional[AgentActivatedArgs]):
+        async def on_activated(agent, args: Optional[AgentActivationArgs]):
             logger.info(f"Agent activated with args: {args}")
     """
 
@@ -91,7 +91,7 @@ class BaseAgent(BaseObject):
         self._task: Optional[PipelineTask] = None
         self._pipeline_started = False
         self._pending_activation = False
-        self._activation_args: Optional[AgentActivatedArgs] = None
+        self._activation_args: Optional[AgentActivationArgs] = None
 
         self._register_event_handler("on_agent_started", sync=True)
         self._register_event_handler("on_agent_activated", sync=True)
@@ -120,7 +120,7 @@ class BaseAgent(BaseObject):
         return self._task
 
     @property
-    def activation_args(self) -> Optional[AgentActivatedArgs]:
+    def activation_args(self) -> Optional[AgentActivationArgs]:
         """The most recent activation arguments, if any."""
         return self._activation_args
 
@@ -173,13 +173,13 @@ class BaseAgent(BaseObject):
         self,
         agent_name: str,
         *,
-        args: Optional[AgentActivatedArgs] = None,
+        args: Optional[AgentActivationArgs] = None,
     ) -> None:
         """Stop this agent and request transfer to the named agent.
 
         Args:
             agent_name: The name of the agent to transfer to.
-            args: Optional `AgentActivatedArgs` forwarded to the target agent's
+            args: Optional `AgentActivationArgs` forwarded to the target agent's
                 ``on_agent_activated`` handler.
         """
         await self.deactivate_agent()
@@ -191,7 +191,7 @@ class BaseAgent(BaseObject):
         self,
         agent_name: str,
         *,
-        args: Optional[AgentActivatedArgs] = None,
+        args: Optional[AgentActivationArgs] = None,
     ) -> None:
         """Activate another agent without stopping this one.
 
@@ -201,7 +201,7 @@ class BaseAgent(BaseObject):
 
         Args:
             agent_name: The name of the agent to activate.
-            args: Optional `AgentActivatedArgs` forwarded to the target agent's
+            args: Optional `AgentActivationArgs` forwarded to the target agent's
                 ``on_agent_activated`` handler.
         """
         await self.send_message(
@@ -291,7 +291,7 @@ class BaseAgent(BaseObject):
         """Activate the agent and fire on_agent_activated.
 
         Called when the pipeline is ready and a start has been requested.
-        Passes any `AgentActivatedArgs` from the activation to the event handler.
+        Passes any `AgentActivationArgs` from the activation to the event handler.
         """
         if self._pipeline_started and self._pending_activation:
             logger.debug(f"Agent '{self}': activated")

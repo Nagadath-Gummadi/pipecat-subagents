@@ -91,7 +91,7 @@ class BusAgentRegisteredMessage(BusMessage):
 
 
 @dataclass
-class AgentActivatedArgs:
+class AgentActivationArgs:
     """Arguments passed to an agent on activation.
 
     Carried by `BusActivateAgentMessage` and forwarded to the
@@ -121,7 +121,7 @@ class BusActivateAgentMessage(BusMessage):
         args: Optional activation arguments forwarded to ``on_agent_activated``.
     """
 
-    args: Optional[AgentActivatedArgs] = None
+    args: Optional[AgentActivationArgs] = None
 
 
 @dataclass

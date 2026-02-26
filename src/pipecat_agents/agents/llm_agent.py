@@ -28,7 +28,7 @@ from pipecat.services.llm_service import LLMService
 
 from pipecat_agents.agents.base_agent import BaseAgent
 from pipecat_agents.bus import AgentBus, BusOutputProcessor
-from pipecat_agents.bus.messages import AgentActivatedArgs
+from pipecat_agents.bus.messages import AgentActivationArgs
 
 FunctionCallResultCallback = Callable[..., Any]
 
@@ -55,7 +55,7 @@ class LLMAgent(BaseAgent):
         agent = MyLLMAgent(name="my_agent", bus=bus)
 
         @agent.event_handler("on_agent_activated")
-        async def on_activated(agent, args: Optional[AgentActivatedArgs]):
+        async def on_activated(agent, args: Optional[AgentActivationArgs]):
             logger.info(f"Agent {agent} activated with args: {args}")
     """
 
@@ -82,7 +82,7 @@ class LLMAgent(BaseAgent):
         self._llm: Optional[LLMService] = None
 
         @self.event_handler("on_agent_activated")
-        async def on_agent_activated(agent, args: Optional[AgentActivatedArgs]):
+        async def on_agent_activated(agent, args: Optional[AgentActivationArgs]):
             tools = self.build_tools()
             if tools:
                 await self.queue_frame(LLMSetToolsFrame(tools=ToolsSchema(standard_tools=tools)))
@@ -171,7 +171,7 @@ class LLMAgent(BaseAgent):
         self,
         agent_name: str,
         *,
-        args: Optional[AgentActivatedArgs] = None,
+        args: Optional[AgentActivationArgs] = None,
         result_callback: Optional[FunctionCallResultCallback] = None,
     ) -> None:
         """Stop this agent and request transfer to the named agent.
@@ -182,7 +182,7 @@ class LLMAgent(BaseAgent):
 
         Args:
             agent_name: The name of the agent to transfer to.
-            args: Optional `AgentActivatedArgs` forwarded to the target agent's
+            args: Optional `AgentActivationArgs` forwarded to the target agent's
                 ``on_agent_activated`` handler.
             result_callback: The ``result_callback`` from `FunctionCallParams`.
                 When provided, the transfer is sent after the function result

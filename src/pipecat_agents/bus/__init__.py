@@ -10,7 +10,7 @@ from pipecat_agents.bus.bridge_processor import BusBridgeProcessor
 from pipecat_agents.bus.bus import AgentBus
 from pipecat_agents.bus.local_bus import LocalAgentBus
 from pipecat_agents.bus.messages import (
-    AgentActivatedArgs,
+    AgentActivationArgs,
     BusActivateAgentMessage,
     BusAddAgentMessage,
     BusAgentRegisteredMessage,
@@ -34,7 +34,7 @@ from pipecat_agents.bus.output_processor import BusOutputProcessor
 __all__ = [
     "AgentBus",
     "LocalAgentBus",
-    "AgentActivatedArgs",
+    "AgentActivationArgs",
     "BusBridgeProcessor",
     "BusAddAgentMessage",
     "BusAgentRegisteredMessage",

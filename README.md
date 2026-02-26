@@ -70,7 +70,7 @@ The message bus provides pub/sub communication between agents and the runner.
 
 ```python
 from pipecat_agents.agents import BaseAgent, LLMAgent
-from pipecat_agents.bus.messages import AgentActivatedArgs
+from pipecat_agents.bus.messages import AgentActivationArgs
 from pipecat_agents.runner import AgentRunner
 
 
@@ -91,7 +91,7 @@ class CoordinatorAgent(BaseAgent):
         async def on_agent_started(agent):
             await self.activate_agent(
                 "analysis",
-                args=AgentActivatedArgs(
+                args=AgentActivationArgs(
                     messages=[{"role": "system", "content": "Analyze the latest metrics."}],
                     metadata={"dataset": "metrics_2024"},
                 ),

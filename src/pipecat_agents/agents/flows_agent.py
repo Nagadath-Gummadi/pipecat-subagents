@@ -22,7 +22,7 @@ from pipecat_flows.types import FlowsDirectFunction
 
 from pipecat_agents.agents.base_agent import BaseAgent
 from pipecat_agents.bus import AgentBus, BusOutputProcessor
-from pipecat_agents.bus.messages import AgentActivatedArgs
+from pipecat_agents.bus.messages import AgentActivationArgs
 
 
 class FlowsAgent(BaseAgent):
@@ -45,7 +45,7 @@ class FlowsAgent(BaseAgent):
 
         class MyFlowsAgent(FlowsAgent):
             @FlowsAgent.event_handler("on_agent_activated")
-            async def on_agent_activated(self, agent, args: Optional[AgentActivatedArgs]):
+            async def on_agent_activated(self, agent, args: Optional[AgentActivationArgs]):
                 # Custom activation logic before flow initialization
                 ...
     """
@@ -87,7 +87,7 @@ class FlowsAgent(BaseAgent):
         self._flow_initialized = False
 
         @self.event_handler("on_agent_activated")
-        async def on_agent_activated(agent, args: Optional[AgentActivatedArgs]):
+        async def on_agent_activated(agent, args: Optional[AgentActivationArgs]):
             if not self._flow_initialized:
                 self._flow_initialized = True
                 await self._flow_manager.initialize(self.build_initial_node())
