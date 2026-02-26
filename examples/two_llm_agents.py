@@ -48,6 +48,7 @@ from pipecat.turns.user_stop.turn_analyzer_user_turn_stop_strategy import (
     TurnAnalyzerUserTurnStopStrategy,
 )
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
+
 from pipecat_agents.agents import BaseAgent, LLMAgent
 from pipecat_agents.bus import (
     AgentActivationArgs,

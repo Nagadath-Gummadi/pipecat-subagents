@@ -7,7 +7,7 @@
 import asyncio
 import unittest
 
-from pipecat_agents.bus import LocalAgentBus, BusMessage
+from pipecat_agents.bus import BusMessage, LocalAgentBus
 
 
 class TestLocalAgentBus(unittest.IsolatedAsyncioTestCase):

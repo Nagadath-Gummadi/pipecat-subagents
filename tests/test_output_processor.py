@@ -19,7 +19,7 @@ from pipecat.pipeline.pipeline import Pipeline
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.tests.utils import run_test
 
-from pipecat_agents.bus import BusFrameMessage, LocalAgentBus, BusOutputProcessor
+from pipecat_agents.bus import BusFrameMessage, BusOutputProcessor, LocalAgentBus
 
 
 class TestBusOutputProcessor(unittest.IsolatedAsyncioTestCase):
