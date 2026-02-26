@@ -1,0 +1,82 @@
+#
+# Copyright (c) 2026, Daily
+#
+# SPDX-License-Identifier: BSD 2-Clause License
+#
+
+import asyncio
+import unittest
+
+from pipecat.frames.frames import TextFrame
+from pipecat.processors.frame_processor import FrameDirection
+
+from pipecat_agents.bus import (
+    BusFrameMessage,
+    BusMessage,
+    LocalAgentBus,
+)
+
+
+class TestBusMessageRouting(unittest.IsolatedAsyncioTestCase):
+    async def test_broadcast_message_no_target(self):
+        """A BusMessage with no target is broadcast (target is None)."""
+        msg = BusMessage(source="agent_a")
+        self.assertIsNone(msg.target)
+
+    async def test_targeted_message(self):
+        """A BusMessage with target set is only for that agent."""
+        msg = BusMessage(source="agent_a", target="agent_b")
+        self.assertEqual(msg.target, "agent_b")
+
+    async def test_broadcast_reaches_all_subscribers(self):
+        """Broadcast messages (no target) reach all on_message subscribers."""
+        bus = LocalAgentBus()
+        received_a = []
+        received_b = []
+
+        @bus.event_handler("on_message")
+        async def sub_a(bus, message):
+            received_a.append(message)
+
+        @bus.event_handler("on_message")
+        async def sub_b(bus, message):
+            received_b.append(message)
+
+        await bus.start()
+        msg = BusMessage(source="agent_x")  # no target
+        await bus.send(msg)
+        await asyncio.sleep(0.05)
+        await bus.stop()
+
+        # Both subscribers see the broadcast
+        self.assertEqual(len(received_a), 1)
+        self.assertEqual(len(received_b), 1)
+
+    async def test_bus_frame_message_wraps_frame(self):
+        """BusFrameMessage wraps a frame with source and direction."""
+        frame = TextFrame(text="hello")
+        msg = BusFrameMessage(
+            source="agent_a",
+            frame=frame,
+            direction=FrameDirection.DOWNSTREAM,
+        )
+        self.assertIs(msg.frame, frame)
+        self.assertEqual(msg.direction, FrameDirection.DOWNSTREAM)
+        self.assertEqual(msg.source, "agent_a")
+        self.assertIsNone(msg.target)
+
+    async def test_bus_frame_message_with_target(self):
+        """BusFrameMessage can carry a target for directed delivery."""
+        frame = TextFrame(text="hello")
+        msg = BusFrameMessage(
+            source="agent_a",
+            target="agent_b",
+            frame=frame,
+            direction=FrameDirection.DOWNSTREAM,
+        )
+        self.assertEqual(msg.target, "agent_b")
+        self.assertIs(msg.frame, frame)
+
+
+if __name__ == "__main__":
+    unittest.main()
