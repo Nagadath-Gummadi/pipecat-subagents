@@ -91,7 +91,7 @@ class BaseAgent(BaseObject):
         self._task: Optional[PipelineTask] = None
         self._pipeline_started = False
         self._pending_activation = False
-        self._pending_activation_args: Optional[AgentActivatedArgs] = None
+        self._activation_args: Optional[AgentActivatedArgs] = None
 
         self._register_event_handler("on_agent_started", sync=True)
         self._register_event_handler("on_agent_activated", sync=True)
@@ -113,6 +113,11 @@ class BaseAgent(BaseObject):
         if not self._task:
             raise RuntimeError(f"Agent '{self}': task not available.")
         return self._task
+
+    @property
+    def activation_args(self) -> Optional[AgentActivatedArgs]:
+        """The most recent activation arguments, if any."""
+        return self._activation_args
 
     async def send_message(self, message: BusMessage) -> None:
         """Send a message to the bus.
@@ -265,7 +270,7 @@ class BaseAgent(BaseObject):
             message: The `BusMessage` to handle.
         """
         if isinstance(message, BusActivateAgentMessage):
-            self._pending_activation_args = message.args
+            self._activation_args = message.args
             self._pending_activation = True
             await self._maybe_activate()
         elif isinstance(message, BusEndAgentMessage):
@@ -287,9 +292,7 @@ class BaseAgent(BaseObject):
             logger.debug(f"Agent '{self}': activated")
             self._active = True
             self._pending_activation = False
-            args = self._pending_activation_args
-            self._pending_activation_args = None
-            await self._call_event_handler("on_agent_activated", args)
+            await self._call_event_handler("on_agent_activated", self._activation_args)
 
     async def _handle_bus_message(self, message: BusMessage) -> None:
         """Handle a raw bus message: filter, queue frames, dispatch others."""
