@@ -103,6 +103,11 @@ class BaseAgent(BaseObject):
             await self._handle_bus_message(message)
 
     @property
+    def bus(self) -> AgentBus:
+        """The bus instance for agent communication."""
+        return self._bus
+
+    @property
     def active(self) -> bool:
         """Whether this agent is active and processing frames."""
         return self._active
