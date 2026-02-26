@@ -262,6 +262,15 @@ class BaseAgent(BaseObject):
         if self._task:
             await self._task.queue_frame(frame)
 
+    async def queue_frames(self, frames) -> None:
+        """Queue multiple frames into this agent's pipeline.
+
+        Args:
+            frames: The frames to inject into the pipeline task's queue.
+        """
+        if self._task:
+            await self._task.queue_frames(frames)
+
     async def on_bus_message(self, message: BusMessage) -> None:
         """Handle non-frame bus messages.
 
