@@ -147,7 +147,6 @@ class FlowsContextAgent(FlowsAgent):
         bus_output = BusOutputProcessor(
             bus=self._bus,
             agent_name=self.name,
-            output_frames=(LLMTextFrame, LLMFullResponseStartFrame, LLMFullResponseEndFrame),
             name=f"{self.name}::BusOutput",
         )
 
