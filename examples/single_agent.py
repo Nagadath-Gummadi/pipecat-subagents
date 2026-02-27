@@ -20,7 +20,6 @@ Requirements:
 import os
 
 from dotenv import load_dotenv
-from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.frames.frames import LLMMessagesAppendFrame
 from pipecat.pipeline.pipeline import Pipeline
@@ -37,10 +36,6 @@ from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.transports.base_transport import BaseTransport, TransportParams
 from pipecat.transports.daily.transport import DailyParams
-from pipecat.turns.user_stop.turn_analyzer_user_turn_stop_strategy import (
-    TurnAnalyzerUserTurnStopStrategy,
-)
-from pipecat.turns.user_turn_strategies import UserTurnStrategies
 
 from pipecat_agents.agents import BaseAgent
 from pipecat_agents.bus import AgentBus
@@ -85,14 +80,7 @@ class SimpleAgent(BaseAgent):
         context = LLMContext(messages)
         context_aggregator = LLMContextAggregatorPair(
             context,
-            user_params=LLMUserAggregatorParams(
-                user_turn_strategies=UserTurnStrategies(
-                    stop=[
-                        TurnAnalyzerUserTurnStopStrategy(turn_analyzer=LocalSmartTurnAnalyzerV3())
-                    ]
-                ),
-                vad_analyzer=SileroVADAnalyzer(),
-            ),
+            user_params=LLMUserAggregatorParams(vad_analyzer=SileroVADAnalyzer()),
         )
 
         pipeline = Pipeline(
