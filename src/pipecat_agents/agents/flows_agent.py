@@ -31,7 +31,14 @@ class FlowsAgent(BaseAgent):
     Pipeline: ``BusInput → LLM → BusOutput``
 
     The `FlowManager` is created when the pipeline task is built.
-    Turn detection and context aggregation live in the main agent.
+    This agent shares context with the main pipeline and does not
+    manage its own system messages.
+
+    Use this for LLM services that accept system instructions via a
+    dedicated parameter (e.g. Google Gemini's ``system_instruction``).
+    For services that require system instructions as the first message
+    in the conversation context (e.g. OpenAI), use
+    ``FlowsContextAgent`` instead.
 
     Overridable lifecycle methods (call ``super()``):
 

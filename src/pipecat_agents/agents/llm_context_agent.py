@@ -7,12 +7,12 @@
 """LLM agent with per-agent context and system messages.
 
 Provides the ``LLMContextAgent`` class that extends ``LLMAgent`` with its own
-``LLMContext``.  System messages are prepended to the shared context on each
-turn, so each agent sees its own instructions without modifying shared state.
+``LLMContext``.  System messages are prepended to the agent's context on each
+turn before forwarding to the LLM.
 
-Use this agent for LLM services (e.g. OpenAI) that don't support a native
-``system_instruction`` parameter and need the system prompt as a context
-message.
+Use this for LLM services (e.g. OpenAI) that require system instructions as
+the first message in the conversation context rather than via a dedicated
+parameter.
 """
 
 import asyncio
@@ -42,16 +42,16 @@ class LLMContextAgent(LLMAgent):
 
         BusInput → ContextProcessor → LLM → Parallel([BusOutput], [AssistantAgg])
 
-    On each ``LLMContextFrame`` from the shared context, the
-    ``AgentContextProcessor`` prepends the agent's system messages and
-    forwards the combined context to the LLM.  After the LLM, a
-    ``ParallelPipeline`` splits output into two independent legs:
-    ``BusOutput`` sends output frames to the bus, while
+    On each ``LLMContextFrame``, the ``AgentContextProcessor`` prepends
+    the agent's system messages and forwards the combined context to the
+    LLM.  After the LLM, a ``ParallelPipeline`` splits output into two
+    independent legs: ``BusOutput`` sends output frames to the bus, while
     ``LLMAssistantAggregator`` captures the LLM's response and adds
     assistant messages to the agent's context.
 
-    Use this instead of ``LLMAgent`` when the LLM service doesn't support
-    a native ``system_instruction`` parameter (e.g. OpenAI).
+    Use this instead of ``LLMAgent`` for LLM services that require system
+    instructions as the first message in the conversation context (e.g.
+    OpenAI) rather than via a dedicated parameter.
 
     Example::
 
@@ -87,7 +87,7 @@ class LLMContextAgent(LLMAgent):
             bus: The ``AgentBus`` for inter-agent communication.
             system_messages: List of message dicts (e.g.
                 ``[{"role": "system", "content": "..."}]``) prepended to
-                the shared context on every LLM turn.
+                the agent's context on every LLM turn.
             parent: Optional name of the parent agent for end routing.
             active: Whether the agent starts active. Defaults to False.
             pipeline_params: Optional ``PipelineParams`` for this agent's task.

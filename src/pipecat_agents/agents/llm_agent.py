@@ -40,8 +40,14 @@ class LLMAgent(BaseAgent):
 
     On activation, sets tools (via `build_tools()`) and appends any
     messages passed via `activate_agent()` or `transfer_to()` to the
-    LLM context. Turn detection and context aggregation live in the
-    main agent.
+    LLM context. This agent shares context with the main pipeline and
+    does not manage its own system messages.
+
+    Use this for LLM services that accept system instructions via a
+    dedicated parameter (e.g. Google Gemini's ``system_instruction``).
+    For services that require system instructions as the first message
+    in the conversation context (e.g. OpenAI), use ``LLMContextAgent``
+    instead.
 
     Overridable lifecycle methods (call ``super()``):
 

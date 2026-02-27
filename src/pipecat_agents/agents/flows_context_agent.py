@@ -10,8 +10,9 @@ Provides the ``FlowsContextAgent`` class that extends ``FlowsAgent`` with its
 own ``LLMContext``.  System messages are prepended to the agent's context on
 each turn before forwarding to the LLM.
 
-Use this agent for Flows-based agents that need their own context, mirroring
-how ``LLMContextAgent`` extends ``LLMAgent``.
+Use this for Flows-based agents backed by LLM services that require system
+instructions as the first message in the conversation context (e.g. OpenAI)
+rather than via a dedicated parameter.
 """
 
 from typing import List, Optional
@@ -53,6 +54,10 @@ class FlowsContextAgent(FlowsAgent):
     The ``FlowManager`` receives an ``LLMContextAggregatorPair`` wrapping
     the agent's own ``LLMContext``, decoupling it from the main pipeline's
     context.
+
+    Use this instead of ``FlowsAgent`` for LLM services that require
+    system instructions as the first message in the conversation context
+    (e.g. OpenAI) rather than via a dedicated parameter.
 
     Example::
 
