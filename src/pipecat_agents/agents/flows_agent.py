@@ -172,7 +172,12 @@ class FlowsAgent(BaseAgent):
         pipeline = Pipeline([bus_input, self._llm, bus_output])
 
         # This agent only has an LLM, so we want disable idle cancellation.
-        task = PipelineTask(pipeline, params=self._pipeline_params, cancel_on_idle_timeout=False)
+        task = PipelineTask(
+            pipeline,
+            params=self._pipeline_params,
+            enable_rtvi=False,
+            cancel_on_idle_timeout=False,
+        )
 
         self._flow_manager = FlowManager(
             task=task,
