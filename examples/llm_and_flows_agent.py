@@ -27,7 +27,7 @@ from loguru import logger
 from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
 from pipecat.audio.vad.silero import SileroVADAnalyzer
-from pipecat.frames.frames import EndFrame
+from pipecat.frames.frames import EndFrame, LLMMessagesAppendFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.processors.aggregators.llm_context import LLMContext
@@ -55,7 +55,7 @@ from pipecat_flows import (
     NodeConfig,
 )
 
-from pipecat_agents.agents import BaseAgent, FlowsAgent, LLMContextAgent
+from pipecat_agents.agents import BaseAgent, FlowsContextAgent, LLMContextAgent
 from pipecat_agents.bus import (
     AgentActivationArgs,
     AgentBus,
@@ -81,7 +81,6 @@ transport_params = {
 }
 
 
-
 class MockReservationSystem:
     """Simulates a restaurant reservation API."""
 
@@ -97,155 +96,59 @@ class MockReservationSystem:
         return is_available, alternatives
 
 
-reservation_system = MockReservationSystem()
-
-
-
-async def collect_party_size(args: FlowArgs) -> tuple[FlowResult, NodeConfig]:
-    size = args["size"]
-    return {"size": size, "status": "ok"}, create_time_selection_node()
-
-
-async def check_availability(args: FlowArgs) -> tuple[FlowResult, NodeConfig]:
-    time = args["time"]
-    party_size = args["party_size"]
-    is_available, alternatives = await reservation_system.check_availability(party_size, time)
-
-    if is_available:
-        return {"time": time, "available": True}, create_confirmation_node()
-    else:
-        times_list = ", ".join(alternatives)
-        return {"time": time, "available": False, "alternatives": alternatives}, {
-            "name": "no_availability",
-            "task_messages": [
-                {
-                    "role": "system",
-                    "content": (
-                        f"Apologize that {time} is not available. "
-                        f"Suggest these alternative times: {times_list}."
-                    ),
-                }
-            ],
-            "functions": [availability_schema, end_reservation_schema],
-        }
-
-
-async def end_reservation(args: FlowArgs) -> tuple[None, NodeConfig]:
-    return None, {
-        "name": "end",
-        "task_messages": [
-            {"role": "system", "content": "Thank them for their reservation and say goodbye."}
-        ],
-        "post_actions": [{"type": "end_conversation"}],
-    }
-
-
-party_size_schema = FlowsFunctionSchema(
-    name="collect_party_size",
-    description="Record the number of people in the party.",
-    properties={"size": {"type": "integer", "minimum": 1, "maximum": 12}},
-    required=["size"],
-    handler=collect_party_size,
-)
-
-availability_schema = FlowsFunctionSchema(
-    name="check_availability",
-    description="Check availability for the requested time.",
-    properties={
-        "time": {
-            "type": "string",
-            "description": "Reservation time (e.g., '6:00 PM')",
-        },
-        "party_size": {"type": "integer"},
-    },
-    required=["time", "party_size"],
-    handler=check_availability,
-)
-
-end_reservation_schema = FlowsFunctionSchema(
-    name="end_reservation",
-    description="Confirm and end the reservation.",
-    properties={},
-    required=[],
-    handler=end_reservation,
-)
-
-
-def create_initial_node() -> NodeConfig:
-    return {
-        "name": "initial",
-        "role_messages": [
-            {
-                "role": "system",
-                "content": (
-                    "You are a reservation assistant for La Maison, an upscale French "
-                    "restaurant. Be casual and friendly. This is a voice conversation."
-                ),
-            }
-        ],
-        "task_messages": [
-            {
-                "role": "system",
-                "content": "Ask how many people are in their party.",
-            }
-        ],
-        "functions": [party_size_schema],
-    }
-
-
-def create_time_selection_node() -> NodeConfig:
-    return {
-        "name": "get_time",
-        "task_messages": [
-            {
-                "role": "system",
-                "content": "Ask what time they'd like to dine. The restaurant is open 5 PM to 10 PM.",
-            }
-        ],
-        "functions": [availability_schema],
-    }
-
-
-def create_confirmation_node() -> NodeConfig:
-    return {
-        "name": "confirm",
-        "task_messages": [
-            {
-                "role": "system",
-                "content": "Confirm the reservation details and ask if there's anything else.",
-            }
-        ],
-        "functions": [end_reservation_schema],
-    }
-
-
-# Transfer function (global, available at every node)
-transfer_to_router_schema = FlowsFunctionSchema(
-    name="transfer_to_router",
-    description="Transfer back to the main assistant if the user wants something else.",
-    properties={
-        "reason": {
-            "type": "string",
-            "description": "Why the user is being transferred.",
-        },
-    },
-    required=["reason"],
-    handler=None,  # Set in ReservationAgent.__init__
-)
-
-
-class ReservationAgent(FlowsAgent):
+class ReservationAgent(FlowsContextAgent):
     """Structured reservation flow using Pipecat Flows."""
 
-    def __init__(self, name: str, *, bus: AgentBus, context_aggregator, **kwargs):
-        # Set the transfer handler before super().__init__ registers it
-        transfer_to_router_schema.handler = self._handle_transfer_to_router
+    def __init__(self, name: str, *, bus: AgentBus, reservation_system, **kwargs):
+        self._reservation_system = reservation_system
+        self._party_size_schema = FlowsFunctionSchema(
+            name="collect_party_size",
+            description="Record the number of people in the party.",
+            properties={"size": {"type": "integer", "minimum": 1, "maximum": 12}},
+            required=["size"],
+            handler=self._handle_collect_party_size,
+        )
+        self._availability_schema = FlowsFunctionSchema(
+            name="check_availability",
+            description="Check availability for the requested time.",
+            properties={
+                "time": {
+                    "type": "string",
+                    "description": "Reservation time (e.g., '6:00 PM')",
+                },
+                "party_size": {"type": "integer"},
+            },
+            required=["time", "party_size"],
+            handler=self._handle_check_availability,
+        )
+        self._end_reservation_schema = FlowsFunctionSchema(
+            name="end_reservation",
+            description="Confirm and end the reservation.",
+            properties={},
+            required=[],
+            handler=self._handle_end_reservation,
+        )
+        self._transfer_to_agent_schema = FlowsFunctionSchema(
+            name="transfer_to_agent",
+            description="Transfer the user to another agent.",
+            properties={
+                "agent": {
+                    "type": "string",
+                    "description": "The agent to transfer to (e.g. 'router').",
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Why the user is being transferred.",
+                },
+            },
+            required=["agent", "reason"],
+            handler=self._handle_transfer_to_agent,
+        )
 
         super().__init__(
             name,
             bus=bus,
-            context_aggregator=context_aggregator,
-            global_functions=[transfer_to_router_schema],
+            global_functions=[self._transfer_to_agent_schema],
             **kwargs,
         )
 
@@ -253,22 +156,104 @@ class ReservationAgent(FlowsAgent):
         return OpenAILLMService(api_key=os.getenv("OPENAI_API_KEY"))
 
     def build_initial_node(self) -> NodeConfig:
-        return create_initial_node()
+        return {
+            "name": "initial",
+            "role_messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a reservation assistant for La Maison, an upscale French "
+                        "restaurant. Be casual and friendly. This is a voice conversation."
+                    ),
+                }
+            ],
+            "task_messages": [
+                {
+                    "role": "system",
+                    "content": "Ask how many people are in their party.",
+                }
+            ],
+            "functions": [self._party_size_schema],
+        }
 
-    async def _handle_transfer_to_router(
+    def _create_time_selection_node(self) -> NodeConfig:
+        return {
+            "name": "get_time",
+            "task_messages": [
+                {
+                    "role": "system",
+                    "content": "Ask what time they'd like to dine. The restaurant is open 5 PM to 10 PM.",
+                }
+            ],
+            "functions": [self._availability_schema],
+        }
+
+    def _create_confirmation_node(self) -> NodeConfig:
+        return {
+            "name": "confirm",
+            "task_messages": [
+                {
+                    "role": "system",
+                    "content": "Confirm the reservation details and ask if there's anything else.",
+                }
+            ],
+            "functions": [self._end_reservation_schema],
+        }
+
+    async def _handle_collect_party_size(self, args: FlowArgs) -> tuple[FlowResult, NodeConfig]:
+        size = args["size"]
+        return {"size": size, "status": "success"}, self._create_time_selection_node()
+
+    async def _handle_check_availability(self, args: FlowArgs) -> tuple[FlowResult, NodeConfig]:
+        time = args["time"]
+        party_size = args["party_size"]
+        is_available, alternatives = await self._reservation_system.check_availability(
+            party_size, time
+        )
+
+        if is_available:
+            return {"time": time, "available": True}, self._create_confirmation_node()
+        else:
+            times_list = ", ".join(alternatives)
+            return {"time": time, "available": False, "alternatives": alternatives}, {
+                "name": "no_availability",
+                "task_messages": [
+                    {
+                        "role": "system",
+                        "content": (
+                            f"Apologize that {time} is not available. "
+                            f"Suggest these alternative times: {times_list}."
+                        ),
+                    }
+                ],
+                "functions": [self._availability_schema, self._end_reservation_schema],
+            }
+
+    async def _handle_end_reservation(self, args: FlowArgs) -> tuple[None, NodeConfig]:
+        return None, {
+            "name": "end",
+            "task_messages": [
+                {
+                    "role": "system",
+                    "content": "Thank them for their reservation and say goodbye.",
+                }
+            ],
+            "post_actions": [{"type": "end_conversation"}],
+        }
+
+    async def _handle_transfer_to_agent(
         self, args: FlowArgs, flow_manager: FlowManager
     ) -> tuple[FlowResult, NodeConfig]:
+        agent = args["agent"]
         reason = args.get("reason", "")
-        logger.info(f"Reservation: transferring to router ({reason})")
+        logger.info(f"Agent '{self.name}': transferring to '{agent}' ({reason})")
         await self.transfer_to(
-            "router",
+            agent,
             args=AgentActivationArgs(
-                messages=[{"role": "user", "content": f"The user is back: {reason}"}],
+                messages=[{"role": "system", "content": reason}],
             ),
         )
-        # Return current node (won't be used since we're transferring)
-        return {"status": "transferring"}, create_initial_node()
-
+        return {"status": "success"}, self.build_initial_node()
 
 
 class RouterAgent(LLMContextAgent):
@@ -283,7 +268,9 @@ class RouterAgent(LLMContextAgent):
                     "content": (
                         "You are a friendly assistant for La Maison restaurant. You can help "
                         "with general questions about the restaurant. When the user wants to "
-                        "make a reservation, transfer them to the reservation system. "
+                        "make a reservation, call the transfer_to_agent tool with agent "
+                        "'reservation'. If the user says goodbye, call the end_conversation "
+                        "tool. Do not mention transferring — just do it seamlessly. "
                         "Keep responses brief — this is a voice conversation."
                     ),
                 }
@@ -294,9 +281,7 @@ class RouterAgent(LLMContextAgent):
     def build_llm(self) -> LLMService:
         llm = OpenAILLMService(api_key=os.getenv("OPENAI_API_KEY"))
         llm.register_function(
-            "transfer_to_reservation",
-            self._handle_transfer_to_reservation,
-            cancel_on_interruption=False,
+            "transfer_to_agent", self._handle_transfer, cancel_on_interruption=False
         )
         llm.register_function("end_conversation", self._handle_end)
         return llm
@@ -304,10 +289,19 @@ class RouterAgent(LLMContextAgent):
     def build_tools(self):
         return [
             FunctionSchema(
-                name="transfer_to_reservation",
-                description="Transfer to the reservation system when the user wants to book a table.",
-                properties={},
-                required=[],
+                name="transfer_to_agent",
+                description="Transfer the user to another agent.",
+                properties={
+                    "agent": {
+                        "type": "string",
+                        "description": "The agent to transfer to (e.g. 'reservation').",
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "Why the user is being transferred.",
+                    },
+                },
+                required=["agent", "reason"],
             ),
             FunctionSchema(
                 name="end_conversation",
@@ -317,23 +311,20 @@ class RouterAgent(LLMContextAgent):
             ),
         ]
 
-    async def _handle_transfer_to_reservation(self, params):
-        logger.info("Router: transferring to reservation")
+    async def _handle_transfer(self, params):
+        agent = params.arguments["agent"]
+        reason = params.arguments["reason"]
+        logger.info(f"Agent '{self.name}': transferring to '{agent}' ({reason})")
         await self.transfer_to(
-            "reservation",
+            agent,
             args=AgentActivationArgs(
-                messages=[
-                    {
-                        "role": "user",
-                        "content": "I'd like to make a reservation.",
-                    }
-                ],
+                messages=[{"role": "system", "content": reason}],
             ),
             result_callback=params.result_callback,
         )
 
     async def _handle_end(self, params):
-        logger.info("Router: ending conversation")
+        logger.info(f"Agent '{self.name}': ending conversation")
         await self.end(
             reason="User said goodbye",
             result="Say goodbye briefly.",
@@ -341,8 +332,7 @@ class RouterAgent(LLMContextAgent):
         )
 
 
-
-class MainAgent(BaseAgent):
+class RestaurantAgent(BaseAgent):
     """Owns the transport pipeline and routes frames to/from the bus."""
 
     def __init__(self, name: str, *, bus: AgentBus, transport: BaseTransport):
@@ -387,7 +377,7 @@ class MainAgent(BaseAgent):
             "reservation",
             bus=self.bus,
             parent=self.name,
-            context_aggregator=context_aggregator,
+            reservation_system=MockReservationSystem(),
         )
         for agent in [router, reservation]:
             self._sub_agents.append(agent.name)
@@ -402,7 +392,7 @@ class MainAgent(BaseAgent):
                 args=AgentActivationArgs(
                     messages=[
                         {
-                            "role": "user",
+                            "role": "system",
                             "content": "Greet the user and ask how you can help.",
                         }
                     ],
@@ -443,11 +433,12 @@ class MainAgent(BaseAgent):
             await super().on_bus_message(message)
 
 
-
 async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     runner = AgentRunner(handle_sigint=runner_args.handle_sigint)
-    main = MainAgent("main", bus=runner.bus, transport=transport)
+
+    main = RestaurantAgent("main", bus=runner.bus, transport=transport)
     await runner.add_agent(main)
+
     await runner.run()
 
 

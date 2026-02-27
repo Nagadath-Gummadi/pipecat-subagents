@@ -122,6 +122,7 @@ class SimpleAgent(BaseAgent):
 
 async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     runner = AgentRunner(handle_sigint=runner_args.handle_sigint)
+
     agent = SimpleAgent("assistant", bus=runner.bus, transport=transport)
 
     @agent.event_handler("on_agent_activated")

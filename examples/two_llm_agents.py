@@ -92,7 +92,7 @@ class AcmeLLMAgent(LLMContextAgent):
                 name="transfer_to_agent",
                 description="Transfer the user to another agent.",
                 properties={
-                    "target": {
+                    "agent": {
                         "type": "string",
                         "description": "The agent to transfer to (e.g. 'greeter', 'support').",
                     },
@@ -101,7 +101,7 @@ class AcmeLLMAgent(LLMContextAgent):
                         "description": "Why the user is being transferred.",
                     },
                 },
-                required=["target", "reason"],
+                required=["agent", "reason"],
             ),
             FunctionSchema(
                 name="end_conversation",
@@ -112,11 +112,11 @@ class AcmeLLMAgent(LLMContextAgent):
         ]
 
     async def _handle_transfer(self, params):
-        target = params.arguments["target"]
+        agent = params.arguments["agent"]
         reason = params.arguments["reason"]
-        logger.info(f"Agent '{self.name}': transferring to {target} ({reason})")
+        logger.info(f"Agent '{self.name}': transferring to {agent} ({reason})")
         await self.transfer_to(
-            target,
+            agent,
             args=AgentActivationArgs(
                 messages=[{"role": "user", "content": reason}],
             ),
@@ -146,7 +146,7 @@ class GreeterAgent(AcmeLLMAgent):
                         "are: the Acme Rocket Boots, the Acme Invisible Paint, and the Acme "
                         "Tornado Kit. Ask which one they'd like to learn more about. "
                         "When the user picks a product or asks a question about one, "
-                        "immediately call the transfer_to_agent tool with target 'support'. "
+                        "immediately call the transfer_to_agent tool with agent 'support'. "
                         "Do not answer product questions yourself. If the user says goodbye, "
                         "call the end_conversation tool. Do not mention transferring — just do it "
                         "seamlessly. Keep responses brief — this is a voice conversation."
@@ -173,7 +173,7 @@ class SupportAgent(AcmeLLMAgent):
                         "24 hours, $49 per can), and Acme Tornado Kit (portable tornado "
                         "generator, $199, batteries included). Answer the user's questions "
                         "about these products. If the user wants to browse other products "
-                        "or start over, call the transfer_to_agent tool with target "
+                        "or start over, call the transfer_to_agent tool with agent "
                         "'greeter'. If the user says goodbye, call the end_conversation "
                         "tool. Do not mention transferring — just do it seamlessly. "
                         "Keep responses brief — this is a voice conversation."
