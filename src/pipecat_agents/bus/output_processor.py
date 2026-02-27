@@ -73,11 +73,6 @@ class BusOutputProcessor(FrameProcessor):
         """
         await super().process_frame(frame, direction)
 
-        # Upstream frames always pass through
-        if direction == FrameDirection.UPSTREAM:
-            await self.push_frame(frame, direction)
-            return
-
         # Lifecycle frames always pass through, never sent to bus
         if isinstance(frame, _LIFECYCLE_FRAMES):
             await self.push_frame(frame, direction)
