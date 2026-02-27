@@ -27,16 +27,10 @@ if TYPE_CHECKING:
     from pipecat_agents.agents.base_agent import BaseAgent
 
 
-# ── Mixins ──────────────────────────────────────────────────────
-
-
 class BusLocalMixin:
     """Mixin: message stays on the local bus, never forwarded to remote buses."""
 
     pass
-
-
-# ── Base ────────────────────────────────────────────────────────
 
 
 @dataclass(kw_only=True)
@@ -72,9 +66,6 @@ class BusFrameMessage(BusMessage):
 
     frame: Frame
     direction: FrameDirection
-
-
-# ── System / lifecycle messages ──────────────────────────────────
 
 
 @dataclass
@@ -193,9 +184,6 @@ class BusAddAgentMessage(BusMessage, BusLocalMixin):
     agent: BaseAgent
 
 
-# ── Session-level event messages ─────────────────────────────────
-
-
 @dataclass
 class BusClientConnectedMessage(BusMessage, BusLocalMixin):
     """A client connected to the transport.
@@ -268,9 +256,6 @@ class BusAssistantTurnStoppedMessage(BusMessage):
     """
 
     message: AssistantTurnStoppedMessage
-
-
-# ── Data messages ────────────────────────────────────────────────
 
 
 @dataclass

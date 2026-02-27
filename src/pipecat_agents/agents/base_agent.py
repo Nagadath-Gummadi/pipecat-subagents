@@ -44,21 +44,26 @@ class BaseAgent(BaseObject):
     bus frames via its ``BusInputProcessor``.  Non-frame bus messages
     (activation, end, cancel) are always delivered regardless of active state.
 
-    Event handlers:
+    Overridable lifecycle methods (call ``super()``):
 
-        on_agent_started(agent): Fired once when the agent's pipeline is
-            ready. Use for one-time setup.
+        on_agent_started(): Called once when the agent's pipeline is ready.
+            Use for one-time setup.
 
-        on_agent_activated(agent, args): Fired each time the agent is
-            activated via `BusActivateAgentMessage` (or created with
-            ``active=True``). Receives the optional `AgentActivationArgs`.
+        on_agent_activated(args): Called each time the agent is activated
+            via `BusActivateAgentMessage` (or created with ``active=True``).
+            Receives the optional `AgentActivationArgs`.
 
-        on_agent_deactivated(agent): Fired when `deactivate_agent()` is called
-            and the agent is deactivated.
+        on_agent_deactivated(): Called when `deactivate_agent()` is called.
 
-        on_bus_message(agent, message): Fired for non-frame bus messages after
-            default lifecycle handling. Override `on_bus_message()` for custom
-            dispatch instead of using this event.
+        on_bus_message(message): Called for non-frame bus messages after
+            default lifecycle handling.
+
+    Event handlers (for external observers, fired after the methods above):
+
+        on_agent_started(agent)
+        on_agent_activated(agent, args)
+        on_agent_deactivated(agent)
+        on_bus_message(agent, message)
 
     Example::
 
@@ -98,10 +103,10 @@ class BaseAgent(BaseObject):
         self._pending_activation = active
         self._activation_args: Optional[AgentActivationArgs] = None
 
-        self._register_event_handler("on_agent_started", sync=True)
-        self._register_event_handler("on_agent_activated", sync=True)
-        self._register_event_handler("on_agent_deactivated", sync=True)
-        self._register_event_handler("on_bus_message", sync=True)
+        self._register_event_handler("on_agent_started")
+        self._register_event_handler("on_agent_activated")
+        self._register_event_handler("on_agent_deactivated")
+        self._register_event_handler("on_bus_message")
 
         @bus.event_handler("on_message")
         async def on_message(bus, message: BusMessage):
@@ -133,89 +138,59 @@ class BaseAgent(BaseObject):
         """The most recent activation arguments, if any."""
         return self._activation_args
 
-    async def end(self, *, reason: Optional[str] = None) -> None:
-        """Request a graceful end of the session.
+    async def on_agent_started(self) -> None:
+        """Called once when the agent's pipeline is ready.
 
-        When a parent is set, sends a targeted `BusEndAgentMessage` to
-        the parent, letting it orchestrate shutdown of its sub-agents.
-        Without a parent, sends an untargeted `BusEndMessage` handled
-        by the runner.
+        Override in subclasses for one-time setup. Always call
+        ``super().on_agent_started()``.
+        """
+        pass
+
+    async def on_agent_activated(self, args: Optional[AgentActivationArgs]) -> None:
+        """Called each time the agent is activated.
+
+        Override in subclasses to react to activation (e.g. set tools,
+        append messages). Always call ``super().on_agent_activated(args)``.
 
         Args:
-            reason: Optional human-readable reason for ending (e.g.
-                "customer said goodbye").
+            args: Optional activation arguments passed by
+                ``activate_agent()`` or ``transfer_to()``.
         """
-        if self._parent:
-            await self.send_message(
-                BusEndAgentMessage(source=self.name, target=self._parent, reason=reason)
-            )
-        else:
-            await self.send_message(BusEndMessage(source=self.name, reason=reason))
+        pass
 
-    async def cancel(self) -> None:
-        """Broadcast a hard cancel to all agents via the bus."""
-        await self.send_message(BusCancelMessage(source=self.name))
+    async def on_agent_deactivated(self) -> None:
+        """Called when the agent is deactivated.
 
-    async def add_agent(self, agent: "BaseAgent") -> None:
-        """Request the local runner to add a new agent.
+        Override in subclasses for cleanup on deactivation. Always call
+        ``super().on_agent_deactivated()``.
+        """
+        pass
+
+    async def on_bus_message(self, message: BusMessage) -> None:
+        """Handle non-frame bus messages.
+
+        Override to handle custom bus messages. Called for any `BusMessage`
+        that is not a `BusFrameMessage` (those are handled by
+        ``BusInputProcessor`` in the pipeline).  The default implementation
+        handles `BusActivateAgentMessage` (deferred start),
+        `BusEndAgentMessage` (graceful pipeline end), and `BusCancelMessage`
+        (task cancellation).
 
         Args:
-            agent: The `BaseAgent` instance to register with the runner.
+            message: The `BusMessage` to handle.
         """
-        await self.send_message(BusAddAgentMessage(source=self.name, agent=agent))
-
-    async def deactivate_agent(self) -> None:
-        """Deactivate this agent so it stops receiving bus frames."""
-        logger.debug(f"Agent '{self}': deactivated")
-        self._active = False
-        await self._call_event_handler("on_agent_deactivated")
-
-    async def activate_agent(
-        self,
-        agent_name: str,
-        *,
-        args: Optional[AgentActivationArgs] = None,
-    ) -> None:
-        """Activate another agent without stopping this one.
-
-        Unlike ``transfer_to()``, this does not deactivate the current agent.
-        Use this from a main agent to start sub-agents (e.g. activate a router
-        on client connect).
-
-        Args:
-            agent_name: The name of the agent to activate.
-            args: Optional `AgentActivationArgs` forwarded to the target agent's
-                ``on_agent_activated`` handler.
-        """
-        await self.send_message(
-            BusActivateAgentMessage(source=self.name, target=agent_name, args=args)
-        )
-
-    async def transfer_to(
-        self,
-        agent_name: str,
-        *,
-        args: Optional[AgentActivationArgs] = None,
-    ) -> None:
-        """Stop this agent and request transfer to the named agent.
-
-        Args:
-            agent_name: The name of the agent to transfer to.
-            args: Optional `AgentActivationArgs` forwarded to the target agent's
-                ``on_agent_activated`` handler.
-        """
-        await self.deactivate_agent()
-        await self.send_message(
-            BusActivateAgentMessage(source=self.name, target=agent_name, args=args)
-        )
-
-    async def send_message(self, message: BusMessage) -> None:
-        """Send a message to the bus.
-
-        Args:
-            message: The `BusMessage` to publish on the agent bus.
-        """
-        await self._bus.send(message)
+        if isinstance(message, BusActivateAgentMessage):
+            self._activation_args = message.args
+            self._pending_activation = True
+            await self._maybe_activate()
+        elif isinstance(message, BusEndAgentMessage):
+            logger.debug(f"Agent '{self}': received end, ending pipeline")
+            if self._task:
+                await self._task.queue_frame(EndFrame(reason=message.reason))
+        elif isinstance(message, BusCancelAgentMessage):
+            logger.debug(f"Agent '{self}': received cancel, cancelling task")
+            if self._task:
+                await self._task.cancel()
 
     @abstractmethod
     async def build_pipeline_task(self) -> PipelineTask:
@@ -251,6 +226,7 @@ class BaseAgent(BaseObject):
             await self.send_message(
                 BusAgentRegisteredMessage(source=self.name, agent_name=self.name)
             )
+            await self.on_agent_started()
             await self._call_event_handler("on_agent_started")
             await self._maybe_activate()
 
@@ -261,6 +237,91 @@ class BaseAgent(BaseObject):
                 await self.cancel()
 
         return task
+
+    async def end(self, *, reason: Optional[str] = None) -> None:
+        """Request a graceful end of the session.
+
+        When a parent is set, sends a targeted `BusEndAgentMessage` to
+        the parent, letting it orchestrate shutdown of its sub-agents.
+        Without a parent, sends an untargeted `BusEndMessage` handled
+        by the runner.
+
+        Args:
+            reason: Optional human-readable reason for ending (e.g.
+                "customer said goodbye").
+        """
+        if self._parent:
+            await self.send_message(
+                BusEndAgentMessage(source=self.name, target=self._parent, reason=reason)
+            )
+        else:
+            await self.send_message(BusEndMessage(source=self.name, reason=reason))
+
+    async def cancel(self) -> None:
+        """Broadcast a hard cancel to all agents via the bus."""
+        await self.send_message(BusCancelMessage(source=self.name))
+
+    async def add_agent(self, agent: "BaseAgent") -> None:
+        """Request the local runner to add a new agent.
+
+        Args:
+            agent: The `BaseAgent` instance to register with the runner.
+        """
+        await self.send_message(BusAddAgentMessage(source=self.name, agent=agent))
+
+    async def activate_agent(
+        self,
+        agent_name: str,
+        *,
+        args: Optional[AgentActivationArgs] = None,
+    ) -> None:
+        """Activate another agent without stopping this one.
+
+        Unlike ``transfer_to()``, this does not deactivate the current agent.
+        Use this from a main agent to start sub-agents (e.g. activate a router
+        on client connect).
+
+        Args:
+            agent_name: The name of the agent to activate.
+            args: Optional `AgentActivationArgs` forwarded to the target agent's
+                ``on_agent_activated`` handler.
+        """
+        await self.send_message(
+            BusActivateAgentMessage(source=self.name, target=agent_name, args=args)
+        )
+
+    async def deactivate_agent(self) -> None:
+        """Deactivate this agent so it stops receiving bus frames."""
+        logger.debug(f"Agent '{self}': deactivated")
+        self._active = False
+        await self.on_agent_deactivated()
+        await self._call_event_handler("on_agent_deactivated")
+
+    async def transfer_to(
+        self,
+        agent_name: str,
+        *,
+        args: Optional[AgentActivationArgs] = None,
+    ) -> None:
+        """Stop this agent and request transfer to the named agent.
+
+        Args:
+            agent_name: The name of the agent to transfer to.
+            args: Optional `AgentActivationArgs` forwarded to the target agent's
+                ``on_agent_activated`` handler.
+        """
+        await self.deactivate_agent()
+        await self.send_message(
+            BusActivateAgentMessage(source=self.name, target=agent_name, args=args)
+        )
+
+    async def send_message(self, message: BusMessage) -> None:
+        """Send a message to the bus.
+
+        Args:
+            message: The `BusMessage` to publish on the agent bus.
+        """
+        await self._bus.send(message)
 
     async def queue_frame(self, frame) -> None:
         """Queue a frame into this agent's pipeline.
@@ -280,42 +341,13 @@ class BaseAgent(BaseObject):
         if self._task:
             await self._task.queue_frames(frames)
 
-    async def on_bus_message(self, message: BusMessage) -> None:
-        """Handle non-frame bus messages.
-
-        Override to handle custom bus messages. Called for any `BusMessage`
-        that is not a `BusFrameMessage` (those are handled by
-        ``BusInputProcessor`` in the pipeline).  The default implementation
-        handles `BusActivateAgentMessage` (deferred start),
-        `BusEndAgentMessage` (graceful pipeline end), and `BusCancelMessage`
-        (task cancellation).
-
-        Args:
-            message: The `BusMessage` to handle.
-        """
-        if isinstance(message, BusActivateAgentMessage):
-            self._activation_args = message.args
-            self._pending_activation = True
-            await self._maybe_activate()
-        elif isinstance(message, BusEndAgentMessage):
-            logger.debug(f"Agent '{self}': received end, ending pipeline")
-            if self._task:
-                await self._task.queue_frame(EndFrame(reason=message.reason))
-        elif isinstance(message, BusCancelAgentMessage):
-            logger.debug(f"Agent '{self}': received cancel, cancelling task")
-            if self._task:
-                await self._task.cancel()
-
     async def _maybe_activate(self) -> None:
-        """Activate the agent and fire on_agent_activated.
-
-        Called when the pipeline is ready and a start has been requested.
-        Passes any `AgentActivationArgs` from the activation to the event handler.
-        """
+        """Activate the agent, call on_agent_activated, and fire event handlers."""
         if self._pipeline_started and self._pending_activation:
             logger.debug(f"Agent '{self}': activated")
             self._active = True
             self._pending_activation = False
+            await self.on_agent_activated(self._activation_args)
             await self._call_event_handler("on_agent_activated", self._activation_args)
 
     async def _handle_bus_message(self, message: BusMessage) -> None:

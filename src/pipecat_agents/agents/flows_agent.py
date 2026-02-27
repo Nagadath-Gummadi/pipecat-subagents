@@ -30,23 +30,21 @@ class FlowsAgent(BaseAgent):
 
     Pipeline: ``BusInput → LLM → BusOutput``
 
-    The `FlowManager` is created when the pipeline task is built. On agent
-    start, it is initialized with the node returned by `build_initial_node()`.
+    The `FlowManager` is created when the pipeline task is built.
     Turn detection and context aggregation live in the main agent.
 
-    Event handlers:
+    Overridable lifecycle methods (call ``super()``):
 
-    on_agent_activated(agent, args)
-        Initializes the `FlowManager` with `build_initial_node()` on the
-        first activation, or resumes with `build_resume_node()` on
-        subsequent activations.
+        on_agent_activated(args): Initializes the `FlowManager` with
+            `build_initial_node()` on the first activation, or resumes
+            with `build_resume_node()` on subsequent activations.
 
     Example::
 
         class MyFlowsAgent(FlowsAgent):
-            @FlowsAgent.event_handler("on_agent_activated")
-            async def on_agent_activated(self, agent, args: Optional[AgentActivationArgs]):
-                # Custom activation logic before flow initialization
+            async def on_agent_activated(self, args):
+                await super().on_agent_activated(args)
+                # Custom activation logic after flow initialization
                 ...
     """
 
@@ -86,13 +84,23 @@ class FlowsAgent(BaseAgent):
         self._flow_manager: Optional[FlowManager] = None
         self._flow_initialized = False
 
-        @self.event_handler("on_agent_activated")
-        async def on_agent_activated(agent, args: Optional[AgentActivationArgs]):
-            if not self._flow_initialized:
-                self._flow_initialized = True
-                await self._flow_manager.initialize(self.build_initial_node())
-            else:
-                await self._flow_manager.set_node_from_config(self.build_resume_node())
+    async def on_agent_activated(self, args: Optional[AgentActivationArgs]) -> None:
+        """Initialize or resume the flow on activation.
+
+        On the first activation, initializes the `FlowManager` with
+        `build_initial_node()`. On subsequent activations, resumes with
+        `build_resume_node()`.
+
+        Args:
+            args: Optional activation arguments.
+        """
+        await super().on_agent_activated(args)
+
+        if not self._flow_initialized:
+            self._flow_initialized = True
+            await self._flow_manager.initialize(self.build_initial_node())
+        else:
+            await self._flow_manager.set_node_from_config(self.build_resume_node())
 
     @property
     def flow_manager(self) -> Optional[FlowManager]:

@@ -81,8 +81,6 @@ transport_params = {
 }
 
 
-# ── Mock reservation system ─────────────────────────────────────
-
 
 class MockReservationSystem:
     """Simulates a restaurant reservation API."""
@@ -102,10 +100,7 @@ class MockReservationSystem:
 reservation_system = MockReservationSystem()
 
 
-# ── Flows agent: Reservation ────────────────────────────────────
 
-
-# Flow function handlers
 async def collect_party_size(args: FlowArgs) -> tuple[FlowResult, NodeConfig]:
     size = args["size"]
     return {"size": size, "status": "ok"}, create_time_selection_node()
@@ -145,7 +140,6 @@ async def end_reservation(args: FlowArgs) -> tuple[None, NodeConfig]:
     }
 
 
-# Flow function schemas
 party_size_schema = FlowsFunctionSchema(
     name="collect_party_size",
     description="Record the number of people in the party.",
@@ -177,7 +171,6 @@ end_reservation_schema = FlowsFunctionSchema(
 )
 
 
-# Flow node creators
 def create_initial_node() -> NodeConfig:
     return {
         "name": "initial",
@@ -277,8 +270,6 @@ class ReservationAgent(FlowsAgent):
         return {"status": "transferring"}, create_initial_node()
 
 
-# ── LLM Agent: Router ───────────────────────────────────────────
-
 
 class RouterAgent(LLMContextAgent):
     """Routes the user to the reservation agent or answers general questions."""
@@ -349,8 +340,6 @@ class RouterAgent(LLMContextAgent):
             result_callback=params.result_callback,
         )
 
-
-# ── Main Agent ───────────────────────────────────────────────────
 
 
 class MainAgent(BaseAgent):
@@ -453,8 +442,6 @@ class MainAgent(BaseAgent):
         else:
             await super().on_bus_message(message)
 
-
-# ── Entry point ──────────────────────────────────────────────────
 
 
 async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):

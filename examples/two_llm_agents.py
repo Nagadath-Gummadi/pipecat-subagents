@@ -75,8 +75,6 @@ transport_params = {
 }
 
 
-# ── LLM Agents ──────────────────────────────────────────────────
-
 
 class AcmeLLMAgent(LLMContextAgent):
     """Base agent for Acme Corp with transfer and end tools."""
@@ -188,8 +186,6 @@ class SupportAgent(AcmeLLMAgent):
         )
 
 
-# ── Main Agent ───────────────────────────────────────────────────
-
 
 class AcmeAgent(BaseAgent):
     """Owns the transport pipeline and bridges frames to/from the bus.
@@ -289,8 +285,6 @@ class AcmeAgent(BaseAgent):
         else:
             await super().on_bus_message(message)
 
-
-# ── Entry point ──────────────────────────────────────────────────
 
 
 async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):

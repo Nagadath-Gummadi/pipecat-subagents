@@ -40,23 +40,20 @@ class LLMAgent(BaseAgent):
 
     On activation, sets tools (via `build_tools()`) and appends any
     messages passed via `activate_agent()` or `transfer_to()` to the
-    LLM context.
+    LLM context. Turn detection and context aggregation live in the
+    main agent.
 
-    Turn detection and context aggregation live in the main agent.
+    Overridable lifecycle methods (call ``super()``):
 
-    Event handlers:
-
-    on_agent_activated(agent, args)
-        Sets the agent's tools via `build_tools()` and appends any
-        activation messages to the LLM context.
+        on_agent_activated(args): Sets tools via `build_tools()` and
+            appends activation messages. Override to customise activation.
 
     Example::
 
-        agent = MyLLMAgent(name="my_agent", bus=bus)
-
-        @agent.event_handler("on_agent_activated")
-        async def on_activated(agent, args: Optional[AgentActivationArgs]):
-            logger.info(f"Agent {agent} activated with args: {args}")
+        class MyAgent(LLMAgent):
+            async def on_agent_activated(self, args):
+                await super().on_agent_activated(args)
+                logger.info(f"Agent activated with args: {args}")
     """
 
     def __init__(
@@ -81,21 +78,30 @@ class LLMAgent(BaseAgent):
         self._pipeline_params = pipeline_params or PipelineParams()
         self._llm: Optional[LLMService] = None
 
-        @self.event_handler("on_agent_activated")
-        async def on_agent_activated(agent, args: Optional[AgentActivationArgs]):
-            tools = self.build_tools()
-            if tools:
-                await self.queue_frame(LLMSetToolsFrame(tools=ToolsSchema(standard_tools=tools)))
+    async def on_agent_activated(self, args: Optional[AgentActivationArgs]) -> None:
+        """Set tools and append activation messages on activation.
 
-            if args and args.messages:
-                await self.queue_frame(LLMMessagesAppendFrame(messages=args.messages, run_llm=True))
+        Calls `build_tools()` and, if tools are returned, queues an
+        `LLMSetToolsFrame`. If ``args.messages`` is provided, appends
+        them to the LLM context via `LLMMessagesAppendFrame`.
+
+        Args:
+            args: Optional activation arguments with messages to append.
+        """
+        await super().on_agent_activated(args)
+
+        tools = self.build_tools()
+        if tools:
+            await self.queue_frame(LLMSetToolsFrame(tools=ToolsSchema(standard_tools=tools)))
+
+        if args and args.messages:
+            await self.queue_frame(LLMMessagesAppendFrame(messages=args.messages, run_llm=True))
 
     def build_tools(self) -> List[FunctionSchema]:
         """Return the function schemas for this agent's LLM tools.
 
         Override in subclasses to register tools. Called on each agent
-        activation via the on_agent_activated handler. Default returns
-        an empty list.
+        activation via `on_agent_activated`. Default returns an empty list.
 
         Returns:
             List of `FunctionSchema` objects to register with the LLM.
