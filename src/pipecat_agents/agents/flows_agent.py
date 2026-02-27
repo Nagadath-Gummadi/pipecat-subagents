@@ -54,7 +54,6 @@ class FlowsAgent(BaseAgent):
         *,
         bus: AgentBus,
         parent: Optional[str] = None,
-        context_aggregator: LLMContextAggregatorPair,
         context_strategy: Optional[ContextStrategyConfig] = None,
         global_functions: Optional[List[FlowsFunctionSchema | FlowsDirectFunction]] = None,
         active: bool = False,
@@ -66,8 +65,6 @@ class FlowsAgent(BaseAgent):
             name: Unique name for this agent.
             bus: The `AgentBus` for inter-agent communication.
             parent: Optional name of the parent agent for end routing.
-            context_aggregator: The `LLMContextAggregatorPair` from the
-                the main agent, used by `FlowManager` for context tracking.
             context_strategy: Optional context strategy forwarded to
                 `FlowManager`.
             global_functions: Optional list of functions available at every
@@ -77,7 +74,6 @@ class FlowsAgent(BaseAgent):
         """
         super().__init__(name, bus=bus, parent=parent, active=active)
         self._pipeline_params = pipeline_params or PipelineParams()
-        self._context_aggregator = context_aggregator
         self._context_strategy = context_strategy
         self._global_functions = global_functions
         self._llm: Optional[LLMService] = None
@@ -106,6 +102,19 @@ class FlowsAgent(BaseAgent):
     def flow_manager(self) -> Optional[FlowManager]:
         """The FlowManager instance, available after the pipeline task is created."""
         return self._flow_manager
+
+    @abstractmethod
+    def build_context_aggregator(self) -> LLMContextAggregatorPair:
+        """Return the context aggregator pair for the `FlowManager`.
+
+        The `FlowManager` uses the context aggregator to track conversation
+        context across flow nodes. Subclasses must provide an appropriate
+        ``LLMContextAggregatorPair``.
+
+        Returns:
+            An ``LLMContextAggregatorPair`` for the `FlowManager`.
+        """
+        pass
 
     @abstractmethod
     def build_llm(self) -> LLMService:
@@ -168,7 +177,7 @@ class FlowsAgent(BaseAgent):
         self._flow_manager = FlowManager(
             task=task,
             llm=self._llm,
-            context_aggregator=self._context_aggregator,
+            context_aggregator=self.build_context_aggregator(),
             context_strategy=self._context_strategy,
             global_functions=self._global_functions,
         )
