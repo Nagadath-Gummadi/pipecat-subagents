@@ -45,7 +45,7 @@ class BusInputProcessor(FrameProcessor):
                 Defaults to always active.
             **kwargs: Additional arguments passed to ``FrameProcessor``.
         """
-        super().__init__(**kwargs)
+        super().__init__(enable_direct_mode=True, **kwargs)
         self._bus = bus
         self._agent_name = agent_name
         self._is_active = is_active
