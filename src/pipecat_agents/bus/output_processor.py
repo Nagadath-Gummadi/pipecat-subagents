@@ -31,6 +31,7 @@ class BusOutputProcessor(FrameProcessor):
         *,
         bus: AgentBus,
         agent_name: str,
+        pass_through: bool = False,
         **kwargs,
     ):
         """Initialize the BusOutputProcessor.
@@ -38,20 +39,31 @@ class BusOutputProcessor(FrameProcessor):
         Args:
             bus: The `AgentBus` to publish frames to.
             agent_name: Name of this agent, used as message source.
+            pass_through: When True, non-lifecycle frames are both sent
+                to the bus **and** passed downstream. Defaults to False.
             **kwargs: Additional arguments passed to `FrameProcessor`.
         """
         super().__init__(**kwargs)
         self._bus = bus
         self._agent_name = agent_name
+        self._pass_through = pass_through
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         """Process a frame: pass lifecycle frames through, send others to bus.
+
+        Only intercepts downstream frames. Upstream frames are always
+        passed through unchanged.
 
         Args:
             frame: The frame to process.
             direction: The direction the frame is traveling.
         """
         await super().process_frame(frame, direction)
+
+        # Upstream frames always pass through
+        if direction == FrameDirection.UPSTREAM:
+            await self.push_frame(frame, direction)
+            return
 
         # Lifecycle frames always pass through, never sent to bus
         if isinstance(frame, _LIFECYCLE_FRAMES):
@@ -65,3 +77,7 @@ class BusOutputProcessor(FrameProcessor):
             direction=direction,
         )
         await self._bus.send(msg)
+
+        # Optionally pass downstream too
+        if self._pass_through:
+            await self.push_frame(frame, direction)

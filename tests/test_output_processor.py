@@ -35,7 +35,7 @@ class TestBusOutputProcessor(unittest.IsolatedAsyncioTestCase):
 
         bus.send = capture_send
 
-        processor = BusOutputProcessor(bus=bus, agent_name="test_agent")
+        processor = BusOutputProcessor(bus=bus, agent_name="test_agent", pass_through=False)
         pipeline = Pipeline([processor])
 
         # Send a TextFrame, then EndFrame to terminate
@@ -65,7 +65,7 @@ class TestBusOutputProcessor(unittest.IsolatedAsyncioTestCase):
 
         bus.send = capture_send
 
-        processor = BusOutputProcessor(bus=bus, agent_name="test_agent")
+        processor = BusOutputProcessor(bus=bus, agent_name="test_agent", pass_through=False)
         pipeline = Pipeline([processor])
 
         frames_to_send = [TextFrame(text="hello")]
@@ -90,7 +90,7 @@ class TestBusOutputProcessor(unittest.IsolatedAsyncioTestCase):
 
         bus.send = capture_send
 
-        processor = BusOutputProcessor(bus=bus, agent_name="my_agent")
+        processor = BusOutputProcessor(bus=bus, agent_name="my_agent", pass_through=False)
         pipeline = Pipeline([processor])
 
         frames_to_send = [TextFrame(text="test")]
@@ -99,6 +99,68 @@ class TestBusOutputProcessor(unittest.IsolatedAsyncioTestCase):
         bus_frame_msgs = [m for m in sent_to_bus if isinstance(m, BusFrameMessage)]
         self.assertEqual(len(bus_frame_msgs), 1)
         self.assertEqual(bus_frame_msgs[0].source, "my_agent")
+
+    async def test_pass_through_false_by_default(self):
+        """Default pass_through=False sends non-lifecycle frames only to bus."""
+        bus = LocalAgentBus()
+        sent_to_bus = []
+        original_send = bus.send
+
+        async def capture_send(msg):
+            sent_to_bus.append(msg)
+            await original_send(msg)
+
+        bus.send = capture_send
+
+        processor = BusOutputProcessor(bus=bus, agent_name="test_agent")
+        pipeline = Pipeline([processor])
+
+        frames_to_send = [TextFrame(text="hello")]
+        expected_down_frames = []
+
+        await run_test(
+            pipeline,
+            frames_to_send=frames_to_send,
+            expected_down_frames=expected_down_frames,
+        )
+
+        # Frame should be on the bus
+        bus_frame_msgs = [m for m in sent_to_bus if isinstance(m, BusFrameMessage)]
+        self.assertEqual(len(bus_frame_msgs), 1)
+
+    async def test_pass_through_true_sends_to_bus_and_downstream(self):
+        """pass_through=True sends non-lifecycle frames to bus AND downstream."""
+        bus = LocalAgentBus()
+        sent_to_bus = []
+        original_send = bus.send
+
+        async def capture_send(msg):
+            sent_to_bus.append(msg)
+            await original_send(msg)
+
+        bus.send = capture_send
+
+        processor = BusOutputProcessor(bus=bus, agent_name="test_agent", pass_through=True)
+        pipeline = Pipeline([processor])
+
+        frames_to_send = [TextFrame(text="hello")]
+        expected_down_frames = [TextFrame]
+
+        down, _ = await run_test(
+            pipeline,
+            frames_to_send=frames_to_send,
+            expected_down_frames=expected_down_frames,
+        )
+
+        # Frame should be on the bus
+        bus_frame_msgs = [m for m in sent_to_bus if isinstance(m, BusFrameMessage)]
+        self.assertEqual(len(bus_frame_msgs), 1)
+        self.assertEqual(bus_frame_msgs[0].frame.text, "hello")
+
+        # And also passed downstream
+        self.assertEqual(len(down), 1)
+        self.assertIsInstance(down[0], TextFrame)
+        self.assertEqual(down[0].text, "hello")
 
 
 if __name__ == "__main__":

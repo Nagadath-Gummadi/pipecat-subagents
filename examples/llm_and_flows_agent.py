@@ -55,14 +55,15 @@ from pipecat_flows import (
     NodeConfig,
 )
 
-from pipecat_agents.agents import BaseAgent, FlowsAgent, LLMAgent
+from pipecat_agents.agents import BaseAgent, FlowsAgent, LLMContextAgent
 from pipecat_agents.bus import (
     AgentActivationArgs,
     AgentBus,
-    BusBridgeProcessor,
     BusEndAgentMessage,
     BusEndMessage,
+    BusInputProcessor,
     BusMessage,
+    BusOutputProcessor,
 )
 from pipecat_agents.runner import AgentRunner
 
@@ -256,10 +257,7 @@ class ReservationAgent(FlowsAgent):
         )
 
     def build_llm(self) -> LLMService:
-        return OpenAILLMService(
-            api_key=os.getenv("OPENAI_API_KEY"),
-            model="gpt-4o",
-        )
+        return OpenAILLMService(api_key=os.getenv("OPENAI_API_KEY"))
 
     def build_initial_node(self) -> NodeConfig:
         return create_initial_node()
@@ -282,20 +280,28 @@ class ReservationAgent(FlowsAgent):
 # ── LLM Agent: Router ───────────────────────────────────────────
 
 
-class RouterAgent(LLMAgent):
+class RouterAgent(LLMContextAgent):
     """Routes the user to the reservation agent or answers general questions."""
 
-    def build_llm(self) -> LLMService:
-        llm = OpenAILLMService(
-            api_key=os.getenv("OPENAI_API_KEY"),
-            model="gpt-4o",
-            system_instruction=(
-                "You are a friendly assistant for La Maison restaurant. You can help "
-                "with general questions about the restaurant. When the user wants to "
-                "make a reservation, transfer them to the reservation system. "
-                "Keep responses brief — this is a voice conversation."
-            ),
+    def __init__(self, name: str, **kwargs):
+        super().__init__(
+            name,
+            system_messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a friendly assistant for La Maison restaurant. You can help "
+                        "with general questions about the restaurant. When the user wants to "
+                        "make a reservation, transfer them to the reservation system. "
+                        "Keep responses brief — this is a voice conversation."
+                    ),
+                }
+            ],
+            **kwargs,
         )
+
+    def build_llm(self) -> LLMService:
+        llm = OpenAILLMService(api_key=os.getenv("OPENAI_API_KEY"))
         llm.register_function(
             "transfer_to_reservation",
             self._handle_transfer_to_reservation,
@@ -348,7 +354,7 @@ class RouterAgent(LLMAgent):
 
 
 class MainAgent(BaseAgent):
-    """Owns the transport pipeline and bridges frames to/from the bus."""
+    """Owns the transport pipeline and routes frames to/from the bus."""
 
     def __init__(self, name: str, *, bus: AgentBus, transport: BaseTransport):
         super().__init__(name, bus=bus, active=True)
@@ -375,10 +381,15 @@ class MainAgent(BaseAgent):
             ),
         )
 
-        bus_bridge = BusBridgeProcessor(
+        bus_output = BusOutputProcessor(
             bus=self.bus,
             agent_name=self.name,
-            name=f"{self.name}::BusBridge",
+            name=f"{self.name}::BusOutput",
+        )
+        bus_input = BusInputProcessor(
+            bus=self.bus,
+            agent_name=self.name,
+            name=f"{self.name}::BusInput",
         )
 
         # Create sub-agents
@@ -419,7 +430,8 @@ class MainAgent(BaseAgent):
                 self._transport.input(),
                 stt,
                 context_aggregator.user(),
-                bus_bridge,
+                bus_output,
+                bus_input,
                 tts,
                 self._transport.output(),
                 context_aggregator.assistant(),

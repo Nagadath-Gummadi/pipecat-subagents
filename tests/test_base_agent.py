@@ -12,7 +12,6 @@ from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineTask
 from pipecat.processors.filters.identity_filter import IdentityFilter
-from pipecat.processors.frame_processor import FrameDirection
 
 from pipecat_agents.agents.base_agent import BaseAgent
 from pipecat_agents.bus import (
@@ -23,7 +22,6 @@ from pipecat_agents.bus import (
     BusCancelMessage,
     BusEndAgentMessage,
     BusEndMessage,
-    BusFrameMessage,
     LocalAgentBus,
 )
 
@@ -240,136 +238,6 @@ class TestBaseAgentLifecycle(unittest.IsolatedAsyncioTestCase):
 
         await asyncio.wait_for(deactivated.wait(), timeout=1.0)
         self.assertFalse(agent.active)
-
-    async def test_bus_frame_message_queued_when_active(self):
-        """BusFrameMessage frames reach the pipeline when agent is active."""
-        bus = LocalAgentBus()
-        agent = StubAgent("test", bus=bus, active=True)
-
-        task = await agent.create_pipeline_task()
-
-        received = []
-        task.set_reached_downstream_filter((TextFrame,))
-
-        @task.event_handler("on_frame_reached_downstream")
-        async def on_frame(task, frame):
-            received.append(frame)
-
-        async def send_frame_via_bus():
-            await asyncio.sleep(0.05)
-            msg = BusFrameMessage(
-                source="other",
-                frame=TextFrame(text="hello"),
-                direction=FrameDirection.DOWNSTREAM,
-            )
-            await bus.send(msg)
-            await asyncio.sleep(0.1)
-            await task.queue_frame(EndFrame())
-
-        await bus.start()
-        runner = PipelineRunner()
-        await asyncio.gather(runner.run(task), send_frame_via_bus())
-        await bus.stop()
-
-        self.assertEqual(len(received), 1)
-        self.assertEqual(received[0].text, "hello")
-
-    async def test_bus_frame_message_ignored_when_inactive(self):
-        """BusFrameMessage frames are ignored when agent is inactive."""
-        bus = LocalAgentBus()
-        agent = StubAgent("test", bus=bus)  # inactive by default
-
-        task = await agent.create_pipeline_task()
-
-        received = []
-        task.set_reached_downstream_filter((TextFrame,))
-
-        @task.event_handler("on_frame_reached_downstream")
-        async def on_frame(task, frame):
-            received.append(frame)
-
-        async def send_frame_via_bus():
-            await asyncio.sleep(0.05)
-            msg = BusFrameMessage(
-                source="other",
-                frame=TextFrame(text="ignored"),
-                direction=FrameDirection.DOWNSTREAM,
-            )
-            await bus.send(msg)
-            await asyncio.sleep(0.1)
-            await task.queue_frame(EndFrame())
-
-        await bus.start()
-        runner = PipelineRunner()
-        await asyncio.gather(runner.run(task), send_frame_via_bus())
-        await bus.stop()
-
-        self.assertEqual(len(received), 0)
-
-    async def test_messages_from_self_ignored(self):
-        """BusFrameMessage from self (source == name) is ignored."""
-        bus = LocalAgentBus()
-        agent = StubAgent("test", bus=bus, active=True)
-
-        task = await agent.create_pipeline_task()
-
-        received = []
-        task.set_reached_downstream_filter((TextFrame,))
-
-        @task.event_handler("on_frame_reached_downstream")
-        async def on_frame(task, frame):
-            received.append(frame)
-
-        async def send_self_frame():
-            await asyncio.sleep(0.05)
-            msg = BusFrameMessage(
-                source="test",  # same as agent name
-                frame=TextFrame(text="self"),
-                direction=FrameDirection.DOWNSTREAM,
-            )
-            await bus.send(msg)
-            await asyncio.sleep(0.1)
-            await task.queue_frame(EndFrame())
-
-        await bus.start()
-        runner = PipelineRunner()
-        await asyncio.gather(runner.run(task), send_self_frame())
-        await bus.stop()
-
-        self.assertEqual(len(received), 0)
-
-    async def test_targeted_messages_for_other_agents_ignored(self):
-        """BusFrameMessage targeted at another agent is ignored."""
-        bus = LocalAgentBus()
-        agent = StubAgent("test", bus=bus, active=True)
-
-        task = await agent.create_pipeline_task()
-
-        received = []
-        task.set_reached_downstream_filter((TextFrame,))
-
-        @task.event_handler("on_frame_reached_downstream")
-        async def on_frame(task, frame):
-            received.append(frame)
-
-        async def send_targeted_frame():
-            await asyncio.sleep(0.05)
-            msg = BusFrameMessage(
-                source="other",
-                target="someone_else",
-                frame=TextFrame(text="not for me"),
-                direction=FrameDirection.DOWNSTREAM,
-            )
-            await bus.send(msg)
-            await asyncio.sleep(0.1)
-            await task.queue_frame(EndFrame())
-
-        await bus.start()
-        runner = PipelineRunner()
-        await asyncio.gather(runner.run(task), send_targeted_frame())
-        await bus.stop()
-
-        self.assertEqual(len(received), 0)
 
     async def test_bus_end_agent_message_ends_pipeline(self):
         """BusEndAgentMessage causes the pipeline to end gracefully."""

@@ -21,14 +21,14 @@ from pipecat_flows import ContextStrategyConfig, FlowManager, FlowsFunctionSchem
 from pipecat_flows.types import FlowsDirectFunction
 
 from pipecat_agents.agents.base_agent import BaseAgent
-from pipecat_agents.bus import AgentBus, BusOutputProcessor
+from pipecat_agents.bus import AgentBus, BusInputProcessor, BusOutputProcessor
 from pipecat_agents.bus.messages import AgentActivationArgs
 
 
 class FlowsAgent(BaseAgent):
     """Agent that uses Pipecat Flows for structured conversation.
 
-    Pipeline: ``LLM → BusOutput``
+    Pipeline: ``BusInput → LLM → BusOutput``
 
     The `FlowManager` is created when the pipeline task is built. On agent
     start, it is initialized with the node returned by `build_initial_node()`.
@@ -141,12 +141,18 @@ class FlowsAgent(BaseAgent):
         """
         self._llm = self.build_llm()
 
+        bus_input = BusInputProcessor(
+            bus=self._bus,
+            agent_name=self.name,
+            is_active=lambda: self.active,
+            name=f"{self.name}::BusInput",
+        )
         bus_output = BusOutputProcessor(
             bus=self._bus,
             agent_name=self.name,
             name=f"{self.name}::BusOutput",
         )
-        pipeline = Pipeline([self._llm, bus_output])
+        pipeline = Pipeline([bus_input, self._llm, bus_output])
 
         # This agent only has an LLM, so we want disable idle cancellation.
         task = PipelineTask(pipeline, params=self._pipeline_params, cancel_on_idle_timeout=False)

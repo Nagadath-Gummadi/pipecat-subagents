@@ -6,8 +6,8 @@
 
 """Agent bus package — pub/sub messaging between agents and the runner."""
 
-from pipecat_agents.bus.bridge_processor import BusBridgeProcessor
 from pipecat_agents.bus.bus import AgentBus
+from pipecat_agents.bus.input_processor import BusInputProcessor
 from pipecat_agents.bus.local_bus import LocalAgentBus
 from pipecat_agents.bus.messages import (
     AgentActivationArgs,
@@ -35,7 +35,7 @@ __all__ = [
     "AgentBus",
     "LocalAgentBus",
     "AgentActivationArgs",
-    "BusBridgeProcessor",
+    "BusInputProcessor",
     "BusAddAgentMessage",
     "BusAgentRegisteredMessage",
     "BusAssistantTurnStartedMessage",

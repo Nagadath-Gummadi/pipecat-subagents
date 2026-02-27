@@ -9,9 +9,11 @@
 from pipecat_agents.agents.base_agent import BaseAgent
 from pipecat_agents.agents.flows_agent import FlowsAgent
 from pipecat_agents.agents.llm_agent import LLMAgent
+from pipecat_agents.agents.llm_context_agent import LLMContextAgent
 
 __all__ = [
     "BaseAgent",
     "FlowsAgent",
     "LLMAgent",
+    "LLMContextAgent",
 ]

@@ -28,9 +28,9 @@ from pipecat_agents.bus import (
     BusCancelMessage,
     BusEndAgentMessage,
     BusEndMessage,
-    BusFrameMessage,
     BusMessage,
 )
+from pipecat_agents.bus.messages import BusFrameMessage
 
 
 class BaseAgent(BaseObject):
@@ -41,10 +41,8 @@ class BaseAgent(BaseObject):
     whether the agent is active.
 
     **Active state**: An agent is *active* when it is currently receiving
-    ``BusFrameMessage`` frames from the bus (user audio, text, etc.).
-    Only active agents have bus frames queued into their pipeline.
-    Non-frame bus messages (activation, end, cancel) are always delivered
-    regardless of active state.
+    bus frames via its ``BusInputProcessor``.  Non-frame bus messages
+    (activation, end, cancel) are always delivered regardless of active state.
 
     Event handlers:
 
@@ -118,8 +116,8 @@ class BaseAgent(BaseObject):
     def active(self) -> bool:
         """Whether this agent is currently receiving bus frames.
 
-        An active agent has ``BusFrameMessage`` frames queued into its
-        pipeline. Non-frame bus messages are delivered regardless.
+        An active agent receives ``BusFrameMessage`` frames via its
+        ``BusInputProcessor``. Non-frame bus messages are delivered regardless.
         """
         return self._active
 
@@ -286,10 +284,11 @@ class BaseAgent(BaseObject):
         """Handle non-frame bus messages.
 
         Override to handle custom bus messages. Called for any `BusMessage`
-        that is not a `BusFrameMessage` (those are queued as pipeline frames).
-        The default implementation handles `BusActivateAgentMessage` (deferred
-        start), `BusEndAgentMessage` (graceful pipeline end), and
-        `BusCancelMessage` (task cancellation).
+        that is not a `BusFrameMessage` (those are handled by
+        ``BusInputProcessor`` in the pipeline).  The default implementation
+        handles `BusActivateAgentMessage` (deferred start),
+        `BusEndAgentMessage` (graceful pipeline end), and `BusCancelMessage`
+        (task cancellation).
 
         Args:
             message: The `BusMessage` to handle.
@@ -320,15 +319,14 @@ class BaseAgent(BaseObject):
             await self._call_event_handler("on_agent_activated", self._activation_args)
 
     async def _handle_bus_message(self, message: BusMessage) -> None:
-        """Handle a raw bus message: filter, queue frames, dispatch others."""
+        """Handle a raw bus message: filter, skip frame messages, dispatch others."""
         # Ignore targeted messages for other agents
         if message.target and message.target != self.name:
             return
 
+        # Frame messages are handled by BusInputProcessor in the pipeline
         if isinstance(message, BusFrameMessage):
-            # Ignore own frames to prevent infinite loops
-            if not self._active or message.source == self.name:
-                return
-            await self.queue_frame(message.frame)
-        else:
-            await self.on_bus_message(message)
+            return
+
+        await self.on_bus_message(message)
+        await self._call_event_handler("on_bus_message", message)

@@ -49,14 +49,15 @@ from pipecat.turns.user_stop.turn_analyzer_user_turn_stop_strategy import (
 )
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
 
-from pipecat_agents.agents import BaseAgent, LLMAgent
+from pipecat_agents.agents import BaseAgent, LLMContextAgent
 from pipecat_agents.bus import (
     AgentActivationArgs,
     AgentBus,
-    BusBridgeProcessor,
     BusEndAgentMessage,
     BusEndMessage,
+    BusInputProcessor,
     BusMessage,
+    BusOutputProcessor,
 )
 from pipecat_agents.runner import AgentRunner
 
@@ -77,135 +78,122 @@ transport_params = {
 # ── LLM Agents ──────────────────────────────────────────────────
 
 
-class GreeterAgent(LLMAgent):
+class AcmeLLMAgent(LLMContextAgent):
+    """Base agent for Acme Corp with transfer and end tools."""
+
+    def build_llm(self) -> LLMService:
+        llm = OpenAILLMService(api_key=os.getenv("OPENAI_API_KEY"))
+        llm.register_function(
+            "transfer_to_agent", self._handle_transfer, cancel_on_interruption=False
+        )
+        llm.register_function("end_conversation", self._handle_end)
+        return llm
+
+    def build_tools(self):
+        return [
+            FunctionSchema(
+                name="transfer_to_agent",
+                description="Transfer the user to another agent.",
+                properties={
+                    "target": {
+                        "type": "string",
+                        "description": "The agent to transfer to (e.g. 'greeter', 'support').",
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "Why the user is being transferred.",
+                    },
+                },
+                required=["target", "reason"],
+            ),
+            FunctionSchema(
+                name="end_conversation",
+                description="End the conversation when the user says goodbye.",
+                properties={},
+                required=[],
+            ),
+        ]
+
+    async def _handle_transfer(self, params):
+        target = params.arguments["target"]
+        reason = params.arguments["reason"]
+        logger.info(f"Agent '{self.name}': transferring to {target} ({reason})")
+        await self.transfer_to(
+            target,
+            args=AgentActivationArgs(
+                messages=[{"role": "user", "content": reason}],
+            ),
+            result_callback=params.result_callback,
+        )
+
+    async def _handle_end(self, params):
+        logger.info(f"Agent '{self.name}': ending conversation")
+        await self.end(
+            reason="User said goodbye",
+            result="Say goodbye briefly.",
+            result_callback=params.result_callback,
+        )
+
+
+class GreeterAgent(AcmeLLMAgent):
     """Greets the user and routes to support when needed."""
 
-    def build_llm(self) -> LLMService:
-        llm = OpenAILLMService(
-            api_key=os.getenv("OPENAI_API_KEY"),
-            model="gpt-4o",
-            system_instruction=(
-                "You are a friendly greeter for Acme Corp. Welcome the user, ask how "
-                "you can help, and transfer them to support when they have a question "
-                "or issue. Keep responses brief — this is a voice conversation."
-            ),
-        )
-        llm.register_function(
-            "transfer_to_support", self._handle_transfer_to_support, cancel_on_interruption=False
-        )
-        llm.register_function("end_conversation", self._handle_end)
-        return llm
-
-    def build_tools(self):
-        return [
-            FunctionSchema(
-                name="transfer_to_support",
-                description="Transfer to the support agent when the user needs help.",
-                properties={
-                    "reason": {
-                        "type": "string",
-                        "description": "Brief summary of what the user needs help with.",
-                    },
-                },
-                required=["reason"],
-            ),
-            FunctionSchema(
-                name="end_conversation",
-                description="End the conversation when the user says goodbye.",
-                properties={},
-                required=[],
-            ),
-        ]
-
-    async def _handle_transfer_to_support(self, params):
-        reason = params.arguments["reason"]
-        logger.info(f"Greeter: transferring to support ({reason})")
-        await self.transfer_to(
-            "support",
-            args=AgentActivationArgs(
-                messages=[{"role": "user", "content": f"Help the user with: {reason}"}],
-            ),
-            result_callback=params.result_callback,
-        )
-
-    async def _handle_end(self, params):
-        logger.info("Greeter: ending conversation")
-        await self.end(
-            reason="User said goodbye",
-            result="Say goodbye briefly.",
-            result_callback=params.result_callback,
+    def __init__(self, name: str, **kwargs):
+        super().__init__(
+            name,
+            system_messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a friendly greeter for Acme Corp. Welcome the user and "
+                        "briefly present three popular products: the Acme Rocket Boots, "
+                        "the Acme Invisible Paint, and the Acme Tornado Kit. Ask which "
+                        "one they'd like to learn more about. When the user picks a "
+                        "product or asks a question about one, immediately call the "
+                        "transfer_to_agent tool with target 'support'. Do not answer "
+                        "product questions yourself. Do not mention transferring — just "
+                        "do it seamlessly. Keep responses brief — this is a voice conversation."
+                    ),
+                }
+            ],
+            **kwargs,
         )
 
 
-class SupportAgent(LLMAgent):
+class SupportAgent(AcmeLLMAgent):
     """Handles support questions and can transfer back to the greeter."""
 
-    def build_llm(self) -> LLMService:
-        llm = OpenAILLMService(
-            api_key=os.getenv("OPENAI_API_KEY"),
-            model="gpt-4o",
-            system_instruction=(
-                "You are a helpful support agent for Acme Corp. Answer the user's "
-                "questions about products and services. If the user wants to do "
-                "something else (like start over or say hi again), transfer them "
-                "back to the greeter. Keep responses brief — this is a voice conversation."
-            ),
-        )
-        llm.register_function(
-            "transfer_to_greeter", self._handle_transfer_to_greeter, cancel_on_interruption=False
-        )
-        llm.register_function("end_conversation", self._handle_end)
-        return llm
-
-    def build_tools(self):
-        return [
-            FunctionSchema(
-                name="transfer_to_greeter",
-                description="Transfer back to the greeter when the user wants to start over.",
-                properties={
-                    "reason": {
-                        "type": "string",
-                        "description": "Why the user is being transferred back.",
-                    },
-                },
-                required=["reason"],
-            ),
-            FunctionSchema(
-                name="end_conversation",
-                description="End the conversation when the user says goodbye.",
-                properties={},
-                required=[],
-            ),
-        ]
-
-    async def _handle_transfer_to_greeter(self, params):
-        reason = params.arguments["reason"]
-        logger.info(f"Support: transferring back to greeter ({reason})")
-        await self.transfer_to(
-            "greeter",
-            args=AgentActivationArgs(
-                messages=[{"role": "user", "content": f"The user is back: {reason}"}],
-            ),
-            result_callback=params.result_callback,
-        )
-
-    async def _handle_end(self, params):
-        logger.info("Support: ending conversation")
-        await self.end(
-            reason="User said goodbye",
-            result="Say goodbye briefly.",
-            result_callback=params.result_callback,
+    def __init__(self, name: str, **kwargs):
+        super().__init__(
+            name,
+            system_messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a support agent for Acme Corp. You know about three "
+                        "products: Acme Rocket Boots (jet-powered boots, $299, run up "
+                        "to 60 mph), Acme Invisible Paint (makes anything invisible for "
+                        "24 hours, $49 per can), and Acme Tornado Kit (portable tornado "
+                        "generator, $199, batteries included). Answer the user's questions "
+                        "about these products. If the user wants to browse other products "
+                        "or start over, call the transfer_to_agent tool with target "
+                        "'greeter'. Do not mention transferring — just do it seamlessly. "
+                        "Keep responses brief — this is a voice conversation."
+                    ),
+                }
+            ],
+            **kwargs,
         )
 
 
 # ── Main Agent ───────────────────────────────────────────────────
 
 
-class MainAgent(BaseAgent):
+class AcmeAgent(BaseAgent):
     """Owns the transport pipeline and bridges frames to/from the bus.
 
-    Has no LLM — the BusBridge forwards user speech to whichever LLM agent
-    is active, and routes its responses back through TTS to the user.
+    Has no LLM — the BusOutput sends user speech to whichever LLM agent is
+    active, and BusInput receives responses back through TTS to the user.
     """
 
     def __init__(self, name: str, *, bus: AgentBus, transport: BaseTransport):
@@ -233,11 +221,31 @@ class MainAgent(BaseAgent):
             ),
         )
 
-        bus_bridge = BusBridgeProcessor(
+        bus_output = BusOutputProcessor(
             bus=self.bus,
             agent_name=self.name,
-            name=f"{self.name}::BusBridge",
+            name=f"{self.name}::BusOutput",
         )
+        bus_input = BusInputProcessor(
+            bus=self.bus,
+            agent_name=self.name,
+            name=f"{self.name}::BusInput",
+        )
+
+        pipeline = Pipeline(
+            [
+                self._transport.input(),
+                stt,
+                context_aggregator.user(),
+                bus_output,
+                bus_input,
+                tts,
+                self._transport.output(),
+                context_aggregator.assistant(),
+            ]
+        )
+
+        task = PipelineTask(pipeline, params=PipelineParams(allow_interruptions=True))
 
         # Create sub-agents
         greeter = GreeterAgent("greeter", bus=self.bus, parent=self.name)
@@ -254,10 +262,7 @@ class MainAgent(BaseAgent):
                 "greeter",
                 args=AgentActivationArgs(
                     messages=[
-                        {
-                            "role": "user",
-                            "content": "Greet the user and ask how you can help.",
-                        }
+                        {"role": "user", "content": "Greet the user and ask how you can help."},
                     ],
                 ),
             )
@@ -267,19 +272,7 @@ class MainAgent(BaseAgent):
             logger.info("Client disconnected")
             await self.cancel()
 
-        pipeline = Pipeline(
-            [
-                self._transport.input(),
-                stt,
-                context_aggregator.user(),
-                bus_bridge,
-                tts,
-                self._transport.output(),
-                context_aggregator.assistant(),
-            ]
-        )
-
-        return PipelineTask(pipeline, params=PipelineParams(allow_interruptions=True))
+        return task
 
     async def on_bus_message(self, message: BusMessage) -> None:
         """End sub-agents before ending self."""
@@ -300,7 +293,7 @@ class MainAgent(BaseAgent):
 
 async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     runner = AgentRunner(handle_sigint=runner_args.handle_sigint)
-    main = MainAgent("main", bus=runner.bus, transport=transport)
+    main = AcmeAgent("acme", bus=runner.bus, transport=transport)
     await runner.add_agent(main)
     await runner.run()
 

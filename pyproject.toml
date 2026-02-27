@@ -41,6 +41,7 @@ dev = [
     "setuptools~=78.1.1",
     "setuptools_scm~=8.3.1",
     "python-dotenv>=1.0.1,<2.0.0",
+    "pipecat-ai[webrtc,daily,silero,deepgram,cartesia,openai,runner]>=0.0.103",
 ]
 
 [tool.pytest.ini_options]

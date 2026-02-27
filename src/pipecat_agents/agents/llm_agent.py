@@ -27,7 +27,7 @@ from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.services.llm_service import LLMService
 
 from pipecat_agents.agents.base_agent import BaseAgent
-from pipecat_agents.bus import AgentBus, BusOutputProcessor
+from pipecat_agents.bus import AgentBus, BusInputProcessor, BusOutputProcessor
 from pipecat_agents.bus.messages import AgentActivationArgs
 
 FunctionCallResultCallback = Callable[..., Any]
@@ -36,7 +36,7 @@ FunctionCallResultCallback = Callable[..., Any]
 class LLMAgent(BaseAgent):
     """Base class for agents with an LLM pipeline.
 
-    Pipeline: ``LLM → BusOutput``
+    Pipeline: ``BusInput → LLM → BusOutput``
 
     On activation, sets tools (via `build_tools()`) and appends any
     messages passed via `activate_agent()` or `transfer_to()` to the
@@ -94,7 +94,8 @@ class LLMAgent(BaseAgent):
         """Return the function schemas for this agent's LLM tools.
 
         Override in subclasses to register tools. Called on each agent
-        start via the on_agent_activated handler. Default returns an empty list.
+        activation via the on_agent_activated handler. Default returns
+        an empty list.
 
         Returns:
             List of `FunctionSchema` objects to register with the LLM.
@@ -129,12 +130,18 @@ class LLMAgent(BaseAgent):
             if isinstance(frame, LLMContextFrame):
                 self._context_frame_arrived.set()
 
+        bus_input = BusInputProcessor(
+            bus=self._bus,
+            agent_name=self.name,
+            is_active=lambda: self.active,
+            name=f"{self.name}::BusInput",
+        )
         bus_output = BusOutputProcessor(
             bus=self._bus,
             agent_name=self.name,
             name=f"{self.name}::BusOutput",
         )
-        pipeline = Pipeline([self._llm, bus_output])
+        pipeline = Pipeline([bus_input, self._llm, bus_output])
 
         # This agent only has an LLM, so we want disable idle cancellation.
         return PipelineTask(pipeline, params=self._pipeline_params, cancel_on_idle_timeout=False)

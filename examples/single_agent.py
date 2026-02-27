@@ -73,13 +73,16 @@ class SimpleAgent(BaseAgent):
             api_key=os.getenv("CARTESIA_API_KEY"),
             voice_id="71a7ad14-091c-4e8e-a314-022ece01c121",  # British Reading Lady
         )
-        llm = OpenAILLMService(
-            api_key=os.getenv("OPENAI_API_KEY"),
-            model="gpt-4o",
-            system_instruction="You are a friendly voice assistant. Keep responses brief and conversational.",
-        )
+        llm = OpenAILLMService(api_key=os.getenv("OPENAI_API_KEY"))
 
-        context = LLMContext()
+        messages = [
+            {
+                "role": "system",
+                "content": "You are a helpful LLM in a WebRTC call. Your goal is to demonstrate your capabilities in a succinct way. Your output will be spoken aloud, so avoid special characters that can't easily be spoken, such as emojis or bullet points. Respond to what the user said in a creative and helpful way.",
+            },
+        ]
+
+        context = LLMContext(messages)
         context_aggregator = LLMContextAggregatorPair(
             context,
             user_params=LLMUserAggregatorParams(
@@ -112,7 +115,7 @@ class SimpleAgent(BaseAgent):
 
         @self._transport.event_handler("on_client_disconnected")
         async def on_client_disconnected(transport, client):
-            await task.cancel()
+            await self.end()
 
         return task
 
