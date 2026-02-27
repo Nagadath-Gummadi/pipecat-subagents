@@ -1,5 +1,5 @@
 <h1><div align="center">
- <img alt="pipecat agents" width="500px" height="auto" src="https://raw.githubusercontent.com/pipecat-ai/pipecat-agents/main/pipecat-agents.png">
+ <img alt="pipecat agents" width="500px" height="auto" src="https://github.com/pipecat-ai/pipecat-agents/raw/refs/heads/main/pipecat-agents.png">
 </div></h1>
 
 [![PyPI](https://img.shields.io/pypi/v/pipecat-ai-agents)](https://pypi.org/project/pipecat-ai-agents) [![Docs](https://img.shields.io/badge/Documentation-blue)](https://docs.pipecat.ai/guides/features/pipecat-agents) [![Discord](https://img.shields.io/discord/1239284677165056021)](https://discord.gg/pipecat)
