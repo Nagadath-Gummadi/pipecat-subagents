@@ -40,8 +40,9 @@ class AgentContextProcessor(FrameProcessor):
             **kwargs: Additional arguments passed to ``FrameProcessor``.
         """
         super().__init__(**kwargs)
-        self._system_messages = list(system_messages)
+        self._system_messages = system_messages
         self._context = context
+        self._context.add_messages(system_messages)
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         """Process a frame, wrapping context frames with system messages.
