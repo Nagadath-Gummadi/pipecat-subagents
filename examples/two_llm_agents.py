@@ -151,8 +151,9 @@ class GreeterAgent(AcmeLLMAgent):
                         "one they'd like to learn more about. When the user picks a "
                         "product or asks a question about one, immediately call the "
                         "transfer_to_agent tool with target 'support'. Do not answer "
-                        "product questions yourself. Do not mention transferring — just "
-                        "do it seamlessly. Keep responses brief — this is a voice conversation."
+                        "product questions yourself. If the user says goodbye, call the "
+                        "end_conversation tool. Do not mention transferring — just do it "
+                        "seamlessly. Keep responses brief — this is a voice conversation."
                     ),
                 }
             ],
@@ -177,7 +178,8 @@ class SupportAgent(AcmeLLMAgent):
                         "generator, $199, batteries included). Answer the user's questions "
                         "about these products. If the user wants to browse other products "
                         "or start over, call the transfer_to_agent tool with target "
-                        "'greeter'. Do not mention transferring — just do it seamlessly. "
+                        "'greeter'. If the user says goodbye, call the end_conversation "
+                        "tool. Do not mention transferring — just do it seamlessly. "
                         "Keep responses brief — this is a voice conversation."
                     ),
                 }
