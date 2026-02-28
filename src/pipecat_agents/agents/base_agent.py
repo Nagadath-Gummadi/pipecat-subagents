@@ -4,10 +4,10 @@
 # SPDX-License-Identifier: BSD 2-Clause License
 #
 
-"""Abstract base agent with bus integration and lifecycle management.
+"""Abstract base agent for the multi-agent framework.
 
-Provides the `BaseAgent` class that all agents inherit from, handling bus
-subscription, pipeline creation, deferred start, and agent transfer.
+Provides the `BaseAgent` class that all agents inherit from, handling
+agent lifecycle, activation, transfer, and parent-child relationships.
 """
 
 import asyncio
@@ -37,13 +37,13 @@ from pipecat_agents.bus.messages import BusFrameMessage
 class BaseAgent(BaseObject):
     """Abstract base class for agents in the multi-agent framework.
 
-    Each agent owns a pipeline whose processors are defined by subclasses.
-    The agent's pipeline is always running once started, regardless of
-    whether the agent is active.
+    Each agent owns a Pipecat pipeline whose processors are defined by
+    subclasses. The pipeline runs continuously once started, regardless
+    of whether the agent is active.
 
-    **Active state**: An agent is *active* when it is currently receiving
-    bus frames via its ``BusInputProcessor``.  Non-frame bus messages
-    (activation, end, cancel) are always delivered regardless of active state.
+    **Active state**: An agent is *active* when it is receiving frames
+    from other agents. Lifecycle messages (activation, end, cancel) are
+    always delivered regardless of active state.
 
     Overridable lifecycle methods (call ``super()``):
 
@@ -51,15 +51,15 @@ class BaseAgent(BaseObject):
             Use for one-time setup.
 
         on_agent_activated(args): Called each time the agent is activated
-            via `BusActivateAgentMessage` (or created with ``active=True``).
-            Receives the optional `AgentActivationArgs`.
+            (via ``activate_agent()``, ``transfer_to()``, or ``active=True``).
+            Receives optional `AgentActivationArgs`.
 
-        on_agent_deactivated(): Called when `deactivate_agent()` is called.
+        on_agent_deactivated(): Called when ``deactivate_agent()`` is called.
 
         on_bus_message(message): Called for non-frame bus messages after
             default lifecycle handling.
 
-    Event handlers (for external observers, fired after the methods above):
+    Event handlers:
 
         on_agent_started(agent)
         on_agent_activated(agent, args)
@@ -89,9 +89,9 @@ class BaseAgent(BaseObject):
             name: Unique name for this agent.
             bus: The `AgentBus` for inter-agent communication.
             parent: Optional name of the parent agent.
-            active: Whether the agent starts active (receiving bus frames).
-                When True, ``on_agent_activated`` fires after the pipeline
-                starts. Defaults to False.
+            active: Whether the agent starts active (receiving frames
+                from other agents). When True, ``on_agent_activated``
+                fires after the pipeline starts. Defaults to False.
         """
         super().__init__(name=name)
         self._bus = bus
@@ -132,16 +132,16 @@ class BaseAgent(BaseObject):
 
     @property
     def active(self) -> bool:
-        """Whether this agent is currently receiving bus frames.
-
-        An active agent receives ``BusFrameMessage`` frames via its
-        ``BusInputProcessor``. Non-frame bus messages are delivered regardless.
-        """
+        """Whether this agent is currently receiving frames from other agents."""
         return self._active
 
     @property
     def task(self) -> PipelineTask:
-        """The PipelineTask for this agent, created by create_pipeline_task()."""
+        """The `PipelineTask` for this agent.
+
+        Raises:
+            RuntimeError: If the pipeline task has not been created yet.
+        """
         if not self._task:
             raise RuntimeError(f"Agent '{self}': task not available.")
         return self._task
@@ -182,12 +182,8 @@ class BaseAgent(BaseObject):
     async def on_bus_message(self, message: BusMessage) -> None:
         """Handle non-frame bus messages.
 
-        Override to handle custom bus messages. Called for any `BusMessage`
-        that is not a `BusFrameMessage` (those are handled by
-        ``BusInputProcessor`` in the pipeline).  The default implementation
-        handles `BusActivateAgentMessage` (deferred start),
-        `BusEndAgentMessage` (graceful pipeline end), and `BusCancelMessage`
-        (task cancellation).
+        Override to handle custom bus messages. The default implementation
+        handles activation, end, and cancel messages.
 
         Args:
             message: The `BusMessage` to handle.
@@ -203,9 +199,8 @@ class BaseAgent(BaseObject):
     async def build_pipeline_task(self) -> PipelineTask:
         """Build and return a `PipelineTask` for this agent.
 
-        Subclasses implement this to create their pipeline and task with
-        whatever params they need. Lifecycle registration is handled
-        automatically by `create_pipeline_task()`.
+        Subclasses implement this to create their pipeline with whatever
+        processors and configuration they need.
 
         Returns:
             The created `PipelineTask`.
@@ -213,15 +208,14 @@ class BaseAgent(BaseObject):
         pass
 
     async def create_pipeline_task(self) -> PipelineTask:
-        """Create the agent's pipeline task and register lifecycle events.
+        """Create and configure the agent's pipeline task.
 
-        Calls `build_pipeline_task()` to get the task from the subclass,
-        then wires up pipeline start (sends `BusAgentRegisteredMessage`,
-        fires ``on_agent_started``, triggers deferred activation) and
-        pipeline finish (cancel propagation on `CancelFrame`).
+        Calls ``build_pipeline_task()`` to get the pipeline from the
+        subclass, then sets up agent lifecycle management. Typically
+        called by the runner, not directly by user code.
 
         Returns:
-            The registered `PipelineTask`.
+            The configured `PipelineTask`.
         """
         task = await self.build_pipeline_task()
         self._task = task
@@ -253,8 +247,7 @@ class BaseAgent(BaseObject):
     async def end(self, *, reason: Optional[str] = None) -> None:
         """Request a graceful end of the session.
 
-        Sends a `BusEndMessage` which is handled by the runner. The
-        runner is responsible for orchestrating shutdown of all agents.
+        The runner will coordinate an orderly shutdown of all agents.
 
         Args:
             reason: Optional human-readable reason for ending (e.g.
@@ -263,29 +256,29 @@ class BaseAgent(BaseObject):
         await self.send_message(BusEndMessage(source=self.name, reason=reason))
 
     async def cancel(self) -> None:
-        """Broadcast a hard cancel to all agents via the bus."""
+        """Request an immediate cancellation of all agents."""
         await self.send_message(BusCancelMessage(source=self.name))
 
     async def add_agent(self, agent: "BaseAgent") -> None:
-        """Request the local runner to add a new agent.
+        """Register a child agent with the runner.
 
-        Also tracks the agent as a child so that end/cancel messages are
-        automatically propagated to it.
+        The child agent's lifecycle (end, cancel) is automatically
+        managed by this parent agent.
 
         Args:
-            agent: The `BaseAgent` instance to register with the runner.
+            agent: The child `BaseAgent` instance to add.
         """
         self._children.append(agent)
         await self.send_message(BusAddAgentMessage(source=self.name, agent=agent))
 
     async def wait(self) -> None:
-        """Wait for this agent's pipeline task to finish."""
+        """Wait for this agent's pipeline to finish."""
         await self._finished.wait()
 
     def notify_finished(self) -> None:
-        """Signal that this agent's pipeline task has finished.
+        """Signal that this agent's pipeline has finished.
 
-        Called by the runner when the agent's asyncio task completes.
+        Called by the runner when the agent completes.
         """
         self._finished.set()
 
@@ -311,7 +304,7 @@ class BaseAgent(BaseObject):
         )
 
     async def deactivate_agent(self) -> None:
-        """Deactivate this agent so it stops receiving bus frames."""
+        """Deactivate this agent so it stops receiving frames from other agents."""
         logger.debug(f"Agent '{self}': deactivated")
         self._active = False
         await self.on_agent_deactivated()
@@ -323,12 +316,12 @@ class BaseAgent(BaseObject):
         *,
         args: Optional[AgentActivationArgs] = None,
     ) -> None:
-        """Stop this agent and request transfer to the named agent.
+        """Deactivate this agent and activate the named agent.
 
         Args:
             agent_name: The name of the agent to transfer to.
-            args: Optional `AgentActivationArgs` forwarded to the target agent's
-                ``on_agent_activated`` handler.
+            args: Optional `AgentActivationArgs` forwarded to the target
+                agent's ``on_agent_activated`` handler.
         """
         await self.deactivate_agent()
         await self.send_message(
@@ -336,27 +329,27 @@ class BaseAgent(BaseObject):
         )
 
     async def send_message(self, message: BusMessage) -> None:
-        """Send a message to the bus.
+        """Send a message on the bus.
 
         Args:
-            message: The `BusMessage` to publish on the agent bus.
+            message: The `BusMessage` to send.
         """
         await self._bus.send(message)
 
     async def queue_frame(self, frame) -> None:
-        """Queue a frame into this agent's pipeline.
+        """Queue a frame into this agent's pipeline task.
 
         Args:
-            frame: The frame to inject into the pipeline task's queue.
+            frame: The frame to queue into the pipeline task.
         """
         if self._task:
             await self._task.queue_frame(frame)
 
     async def queue_frames(self, frames) -> None:
-        """Queue multiple frames into this agent's pipeline.
+        """Queue multiple frames into this agent's pipeline task.
 
         Args:
-            frames: The frames to inject into the pipeline task's queue.
+            frames: The frames to queue into the pipeline task.
         """
         if self._task:
             await self._task.queue_frames(frames)

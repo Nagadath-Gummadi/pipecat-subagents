@@ -29,11 +29,9 @@ from pipecat_agents.bus import (
 class AgentRunner(BaseObject):
     """Lifecycle orchestrator for multi-agent systems.
 
-    Manages agent lifecycle and coordinates pipeline tasks via
-    `PipelineRunner`. On graceful end, sends `BusEndAgentMessage` to all
-    agents in parallel — agents that need ordered shutdown (e.g. ending
-    sub-agents before themselves) handle it in their own
-    ``on_bus_message()``.
+    Manages agent pipelines, coordinates startup and shutdown, and
+    responds to bus messages. On graceful end, root agents are ended
+    first — parent agents propagate shutdown to their children.
 
     Event handlers:
 
@@ -44,8 +42,8 @@ class AgentRunner(BaseObject):
 
         runner = AgentRunner()
 
-        cred = CREDAgent("cred", bus=runner.bus, ...)
-        await runner.add_agent(cred)
+        agent = MyAgent("my_agent", bus=runner.bus, ...)
+        await runner.add_agent(agent)
 
         await runner.run()
     """
@@ -56,11 +54,12 @@ class AgentRunner(BaseObject):
         bus: Optional[AgentBus] = None,
         handle_sigint: bool = True,
     ):
-        """Initialize the AgentRunner.
+        """Initialize the `AgentRunner`.
 
         Args:
-            bus: Optional `AgentBus` instance. Creates a default one if None.
-            handle_sigint: Whether `PipelineRunner` handles SIGINT.
+            bus: Optional `AgentBus` instance. Creates a `LocalAgentBus`
+                if not provided.
+            handle_sigint: Whether to handle SIGINT for graceful shutdown.
                 Defaults to True.
         """
         super().__init__()
@@ -131,11 +130,11 @@ class AgentRunner(BaseObject):
         self._running = False
 
     async def end(self, reason: Optional[str] = None) -> None:
-        """Gracefully end root agent pipelines and shut down.
+        """Gracefully end all agents and shut down.
 
-        Sends `BusEndAgentMessage` only to root agents (those with no
-        parent). Parent agents propagate end to their children
-        themselves. Idempotent — subsequent calls are ignored.
+        Ends root agents first; parent agents propagate shutdown to
+        their children automatically. Idempotent — subsequent calls
+        are ignored.
 
         Args:
             reason: Optional human-readable reason for ending.
@@ -151,11 +150,11 @@ class AgentRunner(BaseObject):
                 )
 
     async def cancel(self, reason: Optional[str] = None) -> None:
-        """Cancel root agent tasks and shut down.
+        """Immediately cancel all agents and shut down.
 
-        Sends targeted `BusCancelAgentMessage` only to root agents
-        (those with no parent). Parent agents propagate cancel to their
-        children themselves. Idempotent — subsequent calls are ignored.
+        Cancels root agents first; parent agents propagate cancellation
+        to their children automatically. Idempotent — subsequent calls
+        are ignored.
 
         Args:
             reason: Optional human-readable reason for cancelling.
