@@ -427,9 +427,7 @@ class TestBaseAgentLifecycle(unittest.IsolatedAsyncioTestCase):
 
         await bus.start()
         runner = PipelineRunner()
-        await asyncio.gather(
-            runner.run(task), send_end(), delayed_child_finish()
-        )
+        await asyncio.gather(runner.run(task), send_end(), delayed_child_finish())
         await bus.stop()
 
         # Child must finish before parent's on_bus_message returns

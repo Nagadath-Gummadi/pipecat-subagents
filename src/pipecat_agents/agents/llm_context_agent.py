@@ -16,6 +16,7 @@ parameter.
 """
 
 from typing import List, Optional
+
 from pipecat.pipeline.parallel_pipeline import ParallelPipeline
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.task import PipelineParams, PipelineTask

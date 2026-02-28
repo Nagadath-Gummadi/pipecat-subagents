@@ -370,9 +370,7 @@ class BaseAgent(BaseObject):
         logger.debug(f"Agent '{self}': received cancel, cancelling task")
         for child in self._children:
             await self.send_message(
-                BusCancelAgentMessage(
-                    source=self.name, target=child.name, reason=message.reason
-                )
+                BusCancelAgentMessage(source=self.name, target=child.name, reason=message.reason)
             )
         if self._task:
             await self._task.cancel()

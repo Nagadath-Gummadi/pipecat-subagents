@@ -183,6 +183,7 @@ class FlowsAgent(BaseAgent):
             pipeline,
             params=self._pipeline_params,
             enable_rtvi=False,
+            enable_turn_tracking=False,
             cancel_on_idle_timeout=False,
         )
 
