@@ -26,7 +26,7 @@ from dotenv import load_dotenv
 from loguru import logger
 from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.audio.vad.silero import SileroVADAnalyzer
-from pipecat.frames.frames import EndFrame, LLMContextFrame
+from pipecat.frames.frames import LLMContextFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.processors.aggregators.llm_context import LLMContext
@@ -54,10 +54,7 @@ from pipecat_agents.agents import BaseAgent, FlowsContextAgent, LLMContextAgent
 from pipecat_agents.bus import (
     AgentActivationArgs,
     AgentBus,
-    BusEndAgentMessage,
-    BusEndMessage,
     BusInputProcessor,
-    BusMessage,
     BusOutputProcessor,
 )
 from pipecat_agents.runner import AgentRunner
@@ -301,8 +298,13 @@ class RouterAgent(LLMContextAgent):
             FunctionSchema(
                 name="end_conversation",
                 description="End the conversation when the user says goodbye.",
-                properties={},
-                required=[],
+                properties={
+                    "reason": {
+                        "type": "string",
+                        "description": "Why the conversation is ending.",
+                    },
+                },
+                required=["reason"],
             ),
         ]
 
@@ -319,12 +321,10 @@ class RouterAgent(LLMContextAgent):
         )
 
     async def _handle_end(self, params):
-        logger.info(f"Agent '{self.name}': ending conversation")
-        await self.end(
-            reason="User said goodbye",
-            result="Say goodbye briefly.",
-            result_callback=params.result_callback,
-        )
+        reason = params.arguments["reason"]
+        logger.info(f"Agent '{self.name}': ending conversation ({reason})")
+        await params.llm.queue_frame({"role": "system", "content": reason})
+        await self.end(reason=reason, result_callback=params.result_callback)
 
 
 class RestaurantAgent(BaseAgent):
@@ -333,7 +333,6 @@ class RestaurantAgent(BaseAgent):
     def __init__(self, name: str, *, bus: AgentBus, transport: BaseTransport):
         super().__init__(name, bus=bus, active=True)
         self._transport = transport
-        self._sub_agents: list[str] = []
 
     async def build_pipeline_task(self) -> PipelineTask:
         stt = DeepgramSTTService(api_key=os.getenv("DEEPGRAM_API_KEY"))
@@ -370,7 +369,6 @@ class RestaurantAgent(BaseAgent):
             reservation_system=MockReservationSystem(),
         )
         for agent in [router, reservation]:
-            self._sub_agents.append(agent.name)
             await self.add_agent(agent)
 
         # Wire transport events
@@ -408,19 +406,6 @@ class RestaurantAgent(BaseAgent):
         )
 
         return PipelineTask(pipeline, params=PipelineParams(allow_interruptions=True))
-
-    async def on_bus_message(self, message: BusMessage) -> None:
-        """End sub-agents before ending self."""
-        if isinstance(message, BusEndAgentMessage):
-            for sub_name in self._sub_agents:
-                await self.send_message(
-                    BusEndAgentMessage(source=self.name, target=sub_name, reason=message.reason)
-                )
-            if self._task:
-                await self._task.queue_frame(EndFrame(reason=message.reason))
-            await self.send_message(BusEndMessage(source=self.name, reason=message.reason))
-        else:
-            await super().on_bus_message(message)
 
 
 async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):

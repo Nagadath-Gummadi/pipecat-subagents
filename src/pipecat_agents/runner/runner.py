@@ -189,6 +189,9 @@ class AgentRunner(BaseObject):
         asyncio_task.add_done_callback(self._on_agent_task_done)
 
     def _on_agent_task_done(self, task: asyncio.Task) -> None:
-        """Remove a completed agent task from the running tasks dict."""
+        """Remove a completed agent task and signal its finished event."""
         name = task.get_name().removeprefix("agent_")
         self._running_agent_tasks.pop(name, None)
+        agent = self._agents.get(name)
+        if agent:
+            agent._finished.set()

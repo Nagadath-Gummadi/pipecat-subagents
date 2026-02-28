@@ -10,6 +10,7 @@ Provides the `BaseAgent` class that all agents inherit from, handling bus
 subscription, pipeline creation, deferred start, and agent transfer.
 """
 
+import asyncio
 from abc import abstractmethod
 from typing import Optional
 
@@ -99,6 +100,8 @@ class BaseAgent(BaseObject):
         self._parent = parent
         self._active = active
         self._task: Optional[PipelineTask] = None
+        self._children: list["BaseAgent"] = []
+        self._finished: asyncio.Event = asyncio.Event()
         self._pipeline_started = False
         self._pending_activation = active
         self._activation_args: Optional[AgentActivationArgs] = None
@@ -180,17 +183,11 @@ class BaseAgent(BaseObject):
             message: The `BusMessage` to handle.
         """
         if isinstance(message, BusActivateAgentMessage):
-            self._activation_args = message.args
-            self._pending_activation = True
-            await self._maybe_activate()
+            await self._activate(message)
         elif isinstance(message, BusEndAgentMessage):
-            logger.debug(f"Agent '{self}': received end, ending pipeline")
-            if self._task:
-                await self._task.queue_frame(EndFrame(reason=message.reason))
+            await self._end(message)
         elif isinstance(message, BusCancelAgentMessage):
-            logger.debug(f"Agent '{self}': received cancel, cancelling task")
-            if self._task:
-                await self._task.cancel()
+            await self._cancel(message)
 
     @abstractmethod
     async def build_pipeline_task(self) -> PipelineTask:
@@ -264,10 +261,18 @@ class BaseAgent(BaseObject):
     async def add_agent(self, agent: "BaseAgent") -> None:
         """Request the local runner to add a new agent.
 
+        Also tracks the agent as a child so that end/cancel messages are
+        automatically propagated to it.
+
         Args:
             agent: The `BaseAgent` instance to register with the runner.
         """
+        self._children.append(agent)
         await self.send_message(BusAddAgentMessage(source=self.name, agent=agent))
+
+    async def wait(self) -> None:
+        """Wait for this agent's pipeline task to finish."""
+        await self._finished.wait()
 
     async def activate_agent(
         self,
@@ -340,6 +345,37 @@ class BaseAgent(BaseObject):
         """
         if self._task:
             await self._task.queue_frames(frames)
+
+    async def _activate(self, message: BusActivateAgentMessage) -> None:
+        """Handle an activation message."""
+        self._activation_args = message.args
+        self._pending_activation = True
+        await self._maybe_activate()
+
+    async def _end(self, message: BusEndAgentMessage) -> None:
+        """Propagate end to children, wait for them, then end own pipeline."""
+        logger.debug(f"Agent '{self}': received end, ending pipeline")
+        for child in self._children:
+            await self.send_message(
+                BusEndAgentMessage(source=self.name, target=child.name, reason=message.reason)
+            )
+        await asyncio.gather(*(child.wait() for child in self._children))
+        if self._task:
+            await self._task.queue_frame(EndFrame(reason=message.reason))
+        if not self._parent:
+            await self.send_message(BusEndMessage(source=self.name, reason=message.reason))
+
+    async def _cancel(self, message: BusCancelAgentMessage) -> None:
+        """Propagate cancel to children, then cancel own pipeline."""
+        logger.debug(f"Agent '{self}': received cancel, cancelling task")
+        for child in self._children:
+            await self.send_message(
+                BusCancelAgentMessage(
+                    source=self.name, target=child.name, reason=message.reason
+                )
+            )
+        if self._task:
+            await self._task.cancel()
 
     async def _maybe_activate(self) -> None:
         """Activate the agent, call on_agent_activated, and fire event handlers."""

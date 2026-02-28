@@ -15,15 +15,7 @@ the first message in the conversation context rather than via a dedicated
 parameter.
 """
 
-import asyncio
 from typing import List, Optional
-
-from pipecat.frames.frames import (
-    LLMContextFrame,
-    LLMFullResponseEndFrame,
-    LLMFullResponseStartFrame,
-    LLMTextFrame,
-)
 from pipecat.pipeline.parallel_pipeline import ParallelPipeline
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.task import PipelineParams, PipelineTask
@@ -121,12 +113,6 @@ class LLMContextAgent(LLMAgent):
             The created ``PipelineTask``.
         """
         self._llm = self.build_llm()
-        self._context_frame_arrived = asyncio.Event()
-
-        @self._llm.event_handler("on_before_process_frame")
-        async def on_before_process_frame(processor, frame):
-            if isinstance(frame, LLMContextFrame):
-                self._context_frame_arrived.set()
 
         bus_input = BusInputProcessor(
             bus=self._bus,

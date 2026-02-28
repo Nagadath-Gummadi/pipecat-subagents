@@ -18,7 +18,6 @@ from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.frames.frames import (
     FunctionCallResultProperties,
-    LLMContextFrame,
     LLMMessagesAppendFrame,
     LLMSetToolsFrame,
 )
@@ -127,20 +126,12 @@ class LLMAgent(BaseAgent):
         """Build the LLM pipeline and create a `PipelineTask`.
 
         Creates the LLM, a `BusOutputProcessor`, wraps them in a pipeline
-        and task. Also registers a persistent ``on_before_process_frame``
-        handler on the LLM to signal when an `LLMContextFrame` arrives,
-        used by `_commit_result_and_wait`.
+        and task.
 
         Returns:
             The created `PipelineTask`.
         """
         self._llm = self.build_llm()
-        self._context_frame_arrived = asyncio.Event()
-
-        @self._llm.event_handler("on_before_process_frame")
-        async def on_before_process_frame(processor, frame):
-            if isinstance(frame, LLMContextFrame):
-                self._context_frame_arrived.set()
 
         bus_input = BusInputProcessor(
             bus=self._bus,
@@ -167,28 +158,23 @@ class LLMAgent(BaseAgent):
         self,
         *,
         reason: Optional[str] = None,
-        result: Optional[Any] = None,
         result_callback: Optional[FunctionCallResultCallback] = None,
     ) -> None:
         """Request a graceful end of the entire session.
 
         When called from a function handler, pass ``params.result_callback``
-        so the LLM generates a final response (e.g. goodbye) before the
-        session ends. Waits for the `LLMContextFrame` to reach the LLM
-        before sending the end message, guaranteeing the goodbye response
-        is generated before the pipeline is ended.
+        to close out the function call before ending. The caller is
+        responsible for appending any goodbye prompt to the LLM context
+        before calling this method.
 
         Args:
             reason: Optional human-readable reason for ending (e.g.
                 "customer said goodbye").
-            result: Optional value to commit as the function-call result.
-                Passed to `result_callback` before ending.
             result_callback: The ``result_callback`` from `FunctionCallParams`.
-                When provided, the end message is sent after the LLM has
-                fully generated its response.
+                When provided, closes the function call and waits for the
+                context to settle before sending the end message.
         """
-        if result_callback:
-            await self._commit_result_and_wait(result, result_callback)
+        await self._close_function_call(result_callback)
         await super().end(reason=reason)
 
     async def transfer_to(
@@ -201,57 +187,42 @@ class LLMAgent(BaseAgent):
         """Stop this agent and request transfer to the named agent.
 
         When called from a function handler, pass ``params.result_callback``
-        so the transfer waits for the function-call result to be committed
-        to the context before activating the target agent.
+        to close out the function call before transferring.
 
         Args:
             agent_name: The name of the agent to transfer to.
             args: Optional `AgentActivationArgs` forwarded to the target agent's
                 ``on_agent_activated`` handler.
             result_callback: The ``result_callback`` from `FunctionCallParams`.
-                When provided, the transfer is sent after the function result
-                is added to the context (via ``on_context_updated``).
+                When provided, closes the function call and waits for the
+                context to settle before transferring.
         """
-        if result_callback:
-            await self._commit_result_and_wait(None, result_callback, run_llm=False)
+        await self._close_function_call(result_callback)
         await super().transfer_to(agent_name, args=args)
 
-    async def _commit_result_and_wait(
-        self,
-        result: Optional[Any],
-        result_callback: FunctionCallResultCallback,
-        run_llm: bool = True,
+    async def _close_function_call(
+        self, result_callback: Optional[FunctionCallResultCallback]
     ) -> None:
-        """Commit a function-call result and wait for the LLM to process it.
+        """Close out an in-progress function call before taking action.
 
-        When ``run_llm`` is True, waits for the resulting `LLMContextFrame`
-        to reach the LLM (via ``on_before_process_frame``), guaranteeing it
-        will be processed before any subsequent `EndFrame`. When False,
-        waits for the context to be updated via ``on_context_updated``.
+        Used by `end()` and `transfer_to()` to ensure the function call
+        is fully resolved before the agent ends or transfers.
 
         Args:
-            result: The function-call result value.
-            result_callback: The callback from `FunctionCallParams`.
-            run_llm: Whether to trigger LLM generation. Defaults to True.
+            result_callback: The callback from `FunctionCallParams`, or None.
         """
-        if run_llm:
-            self._context_frame_arrived.clear()
-            await result_callback(
-                result,
-                properties=FunctionCallResultProperties(run_llm=True),
-            )
-            await self._context_frame_arrived.wait()
-        else:
-            context_updated = asyncio.Event()
+        if not result_callback:
+            return
+        context_updated = asyncio.Event()
 
-            async def _on_context_updated():
-                context_updated.set()
+        async def _on_context_updated():
+            context_updated.set()
 
-            await result_callback(
-                result,
-                properties=FunctionCallResultProperties(
-                    run_llm=False,
-                    on_context_updated=_on_context_updated,
-                ),
-            )
-            await context_updated.wait()
+        await result_callback(
+            None,
+            properties=FunctionCallResultProperties(
+                run_llm=False,
+                on_context_updated=_on_context_updated,
+            ),
+        )
+        await context_updated.wait()
