@@ -17,7 +17,14 @@ parameter.
 
 from typing import List, Optional
 
-from pipecat.frames.frames import LLMFullResponseEndFrame, LLMFullResponseStartFrame, LLMTextFrame
+from pipecat.frames.frames import (
+    LLMFullResponseEndFrame,
+    LLMFullResponseStartFrame,
+    LLMTextFrame,
+    TTSAudioRawFrame,
+    TTSStartedFrame,
+    TTSStoppedFrame,
+)
 from pipecat.pipeline.parallel_pipeline import ParallelPipeline
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.task import PipelineParams, PipelineTask
@@ -97,22 +104,21 @@ class LLMContextAgent(LLMAgent):
 
             BusInput → ContextProcessor → LLM → Parallel([BusOutput], [AssistantAgg])
 
+        If ``build_tts()`` returns a service, it is inserted before the
+        ``BusOutput`` in the first parallel leg::
+
+            Parallel([TTS, BusOutput], [AssistantAgg])
+
         The ``AgentContextProcessor`` and ``LLMAssistantAggregator`` share
         the same ``LLMContext`` so that tools and messages set by the
         aggregator are visible when the context processor builds the LLM
         request.
 
-        After the LLM, a ``ParallelPipeline`` splits output into two
-        independent legs: ``BusOutput`` sends frames to the bus, while
-        ``AssistantAgg`` captures assistant responses. Only output
-        frames (``LLMTextFrame``, ``LLMFullResponseStartFrame``,
-        ``LLMFullResponseEndFrame``) are sent to the bus via
-        ``output_frames``.
-
         Returns:
             The created ``PipelineTask``.
         """
         self._llm = self._build_llm()
+        tts = self.build_tts()
 
         bus_input = BusInputProcessor(
             bus=self._bus,
@@ -127,11 +133,15 @@ class LLMContextAgent(LLMAgent):
             name=f"{self.name}::ContextProcessor",
         )
 
+        output_frames = (LLMFullResponseStartFrame, LLMFullResponseEndFrame, LLMTextFrame)
+        if tts:
+            output_frames = output_frames + (TTSAudioRawFrame, TTSStartedFrame, TTSStoppedFrame)
+
         bus_output = BusOutputProcessor(
             bus=self._bus,
             agent_name=self.name,
             name=f"{self.name}::BusOutput",
-            output_frames=(LLMFullResponseStartFrame, LLMFullResponseEndFrame, LLMTextFrame),
+            output_frames=output_frames,
         )
 
         assistant_aggregator = LLMAssistantAggregator(
@@ -139,12 +149,14 @@ class LLMContextAgent(LLMAgent):
             name=f"{self.name}::AssistantAgg",
         )
 
+        bus_output_leg = [tts, bus_output] if tts else [bus_output]
+
         pipeline = Pipeline(
             [
                 bus_input,
                 context_processor,
                 self._llm,
-                ParallelPipeline([bus_output], [assistant_aggregator]),
+                ParallelPipeline(bus_output_leg, [assistant_aggregator]),
             ]
         )
 

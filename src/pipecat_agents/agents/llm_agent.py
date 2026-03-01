@@ -23,10 +23,14 @@ from pipecat.frames.frames import (
     LLMMessagesAppendFrame,
     LLMSetToolsFrame,
     LLMTextFrame,
+    TTSAudioRawFrame,
+    TTSStartedFrame,
+    TTSStoppedFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.services.llm_service import LLMService
+from pipecat.services.tts_service import TTSService
 
 from pipecat_agents.agents.base_agent import BaseAgent
 from pipecat_agents.agents.tool import _collect_tools
@@ -125,6 +129,21 @@ class LLMAgent(BaseAgent):
         """
         pass
 
+    def build_tts(self) -> Optional[TTSService]:
+        """Return an optional TTS service for this agent's pipeline.
+
+        When a TTS service is returned, it is inserted after the LLM and
+        before the ``BusOutput``. The ``BusOutput`` is configured to send
+        both text and audio frames to the bus.
+
+        Override in subclasses to give the agent its own voice.  Returns
+        ``None`` by default (no TTS).
+
+        Returns:
+            A ``TTSService`` instance, or ``None``.
+        """
+        return None
+
     def _build_llm(self) -> LLMService:
         """Create the LLM and register ``@tool`` decorated methods."""
         llm = self.build_llm()
@@ -139,12 +158,17 @@ class LLMAgent(BaseAgent):
         """Build the LLM pipeline and create a `PipelineTask`.
 
         Creates the LLM, registers any ``@tool`` decorated methods,
-        and wraps the pipeline in a task.
+        and wraps the pipeline in a task. If ``build_tts()`` returns a
+        service, it is inserted after the LLM::
+
+            BusInput → LLM → BusOutput           (no TTS)
+            BusInput → LLM → TTS → BusOutput     (with TTS)
 
         Returns:
             The created `PipelineTask`.
         """
         self._llm = self._build_llm()
+        tts = self.build_tts()
 
         bus_input = BusInputProcessor(
             bus=self._bus,
@@ -152,13 +176,24 @@ class LLMAgent(BaseAgent):
             is_active=lambda: self.active,
             name=f"{self.name}::BusInput",
         )
+
+        output_frames = (LLMFullResponseStartFrame, LLMFullResponseEndFrame, LLMTextFrame)
+        if tts:
+            output_frames = output_frames + (TTSAudioRawFrame, TTSStartedFrame, TTSStoppedFrame)
+
         bus_output = BusOutputProcessor(
             bus=self._bus,
             agent_name=self.name,
             name=f"{self.name}::BusOutput",
-            output_frames=(LLMFullResponseStartFrame, LLMFullResponseEndFrame, LLMTextFrame),
+            output_frames=output_frames,
         )
-        pipeline = Pipeline([bus_input, self._llm, bus_output])
+
+        processors = [bus_input, self._llm]
+        if tts:
+            processors.append(tts)
+        processors.append(bus_output)
+
+        pipeline = Pipeline(processors)
 
         # This agent only has an LLM, so we want disable idle cancellation.
         return PipelineTask(

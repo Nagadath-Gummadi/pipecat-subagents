@@ -21,6 +21,9 @@ from pipecat.frames.frames import (
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
     LLMTextFrame,
+    TTSAudioRawFrame,
+    TTSStartedFrame,
+    TTSStoppedFrame,
 )
 from pipecat.pipeline.parallel_pipeline import ParallelPipeline
 from pipecat.pipeline.pipeline import Pipeline
@@ -123,6 +126,11 @@ class FlowsContextAgent(FlowsAgent):
 
             BusInput → ContextProcessor → LLM → Parallel([BusOutput], [AssistantAgg])
 
+        If ``build_tts()`` returns a service, it is inserted before the
+        ``BusOutput`` in the first parallel leg::
+
+            Parallel([TTS, BusOutput], [AssistantAgg])
+
         The ``AgentContextProcessor`` and ``LLMAssistantAggregator`` share
         the same ``LLMContext`` so that tools and messages set by the
         aggregator are visible when the context processor builds the LLM
@@ -134,6 +142,8 @@ class FlowsContextAgent(FlowsAgent):
         Returns:
             The created ``PipelineTask``.
         """
+        tts = self.build_tts()
+
         bus_input = BusInputProcessor(
             bus=self._bus,
             agent_name=self.name,
@@ -147,11 +157,15 @@ class FlowsContextAgent(FlowsAgent):
             name=f"{self.name}::ContextProcessor",
         )
 
+        output_frames = (LLMFullResponseStartFrame, LLMFullResponseEndFrame, LLMTextFrame)
+        if tts:
+            output_frames = output_frames + (TTSAudioRawFrame, TTSStartedFrame, TTSStoppedFrame)
+
         bus_output = BusOutputProcessor(
             bus=self._bus,
             agent_name=self.name,
             name=f"{self.name}::BusOutput",
-            output_frames=(LLMFullResponseStartFrame, LLMFullResponseEndFrame, LLMTextFrame),
+            output_frames=output_frames,
         )
 
         assistant_aggregator = LLMAssistantAggregator(
@@ -159,12 +173,14 @@ class FlowsContextAgent(FlowsAgent):
             name=f"{self.name}::AssistantAgg",
         )
 
+        bus_output_leg = [tts, bus_output] if tts else [bus_output]
+
         pipeline = Pipeline(
             [
                 bus_input,
                 context_processor,
                 self._llm,
-                ParallelPipeline([bus_output], [assistant_aggregator]),
+                ParallelPipeline(bus_output_leg, [assistant_aggregator]),
             ]
         )
 
