@@ -294,7 +294,6 @@ class RestaurantAgent(BaseAgent):
             agent_name=self.name,
             name=f"{self.name}::BusOutput",
             output_frames=(LLMContextFrame,),
-            pass_through=True,
         )
         bus_input = BusInputProcessor(
             bus=self.bus,

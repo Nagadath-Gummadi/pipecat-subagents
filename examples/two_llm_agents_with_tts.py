@@ -104,10 +104,7 @@ class AcmeTTSAgent(LLMContextAgent):
         await params.llm.queue_frame(
             LLMMessagesAppendFrame(
                 messages=[
-                    {
-                        "role": "system",
-                        "content": "Tell the user you are transferring to another agent.",
-                    }
+                    {"role": "system", "content": f"Tell the user about the transfer ({reason})."}
                 ],
                 run_llm=True,
             )
@@ -212,7 +209,6 @@ class AcmeAgent(BaseAgent):
             bus=self.bus,
             agent_name=self.name,
             output_frames=(LLMContextFrame,),
-            pass_through=True,
             name=f"{self.name}::BusOutput",
         )
         bus_input = BusInputProcessor(

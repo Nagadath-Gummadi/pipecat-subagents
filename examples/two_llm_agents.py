@@ -183,7 +183,6 @@ class AcmeAgent(BaseAgent):
             bus=self.bus,
             agent_name=self.name,
             output_frames=(LLMContextFrame,),
-            pass_through=True,
             name=f"{self.name}::BusOutput",
         )
         bus_input = BusInputProcessor(
