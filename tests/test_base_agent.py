@@ -7,11 +7,11 @@
 import asyncio
 import unittest
 
-from pipecat.frames.frames import EndFrame, TextFrame
+from pipecat.frames.frames import EndFrame, Frame, TextFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
-from pipecat.pipeline.task import PipelineTask
 from pipecat.processors.filters.identity_filter import IdentityFilter
+from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
 from pipecat_agents.agents.base_agent import BaseAgent
 from pipecat_agents.bus import (
@@ -22,16 +22,27 @@ from pipecat_agents.bus import (
     BusCancelMessage,
     BusEndAgentMessage,
     BusEndMessage,
+    BusFrameMessage,
     LocalAgentBus,
 )
+
+
+class _FrameGenerator(FrameProcessor):
+    """Generates a new TextFrame for each input TextFrame."""
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection):
+        await super().process_frame(frame, direction)
+        if isinstance(frame, TextFrame):
+            await self.push_frame(TextFrame(text=f"generated_{frame.text}"), direction)
+        else:
+            await self.push_frame(frame, direction)
 
 
 class StubAgent(BaseAgent):
     """Minimal agent subclass for testing."""
 
-    async def build_pipeline_task(self) -> PipelineTask:
-        pipeline = Pipeline([IdentityFilter()])
-        return PipelineTask(pipeline, cancel_on_idle_timeout=False)
+    async def build_pipeline(self) -> Pipeline:
+        return Pipeline([IdentityFilter()])
 
 
 def capture_bus(bus):
@@ -454,6 +465,155 @@ class TestBaseAgentLifecycle(unittest.IsolatedAsyncioTestCase):
         targets = {m.target for m in cancel_msgs}
         self.assertIn("child_a", targets)
         self.assertIn("child_b", targets)
+
+
+class _GeneratingAgent(BaseAgent):
+    """Agent whose pipeline generates new frames (for testing edge sinks)."""
+
+    async def build_pipeline(self) -> Pipeline:
+        return Pipeline([_FrameGenerator()])
+
+
+class TestEdgeToBus(unittest.IsolatedAsyncioTestCase):
+    async def test_generated_frames_reach_bus(self):
+        """Pipeline-generated frames are broadcast to the bus."""
+        bus = LocalAgentBus()
+        sent = capture_bus(bus)
+
+        agent = _GeneratingAgent("agent", bus=bus, enable_bus_sinks=True)
+        task = await agent.create_pipeline_task()
+
+        async def push_frames():
+            await asyncio.sleep(0.05)
+            await agent.queue_frame(TextFrame(text="input"))
+            await asyncio.sleep(0.05)
+            await agent.queue_frame(EndFrame())
+
+        runner = PipelineRunner()
+        await asyncio.gather(runner.run(task), push_frames())
+
+        bus_frame_msgs = [m for m in sent if isinstance(m, BusFrameMessage)]
+        text_msgs = [m for m in bus_frame_msgs if isinstance(m.frame, TextFrame)]
+        generated = [m for m in text_msgs if m.frame.text == "generated_input"]
+        self.assertEqual(len(generated), 1)
+        self.assertEqual(generated[0].source, "agent")
+
+    async def test_bus_frames_not_rebroadcast_by_same_agent(self):
+        """Frames from the bus with source==self are ignored by edge processors."""
+        bus = LocalAgentBus()
+        sent = capture_bus(bus)
+
+        agent = StubAgent("agent", bus=bus, active=True, enable_bus_sinks=True)
+        task = await agent.create_pipeline_task()
+
+        async def inject_frame():
+            await asyncio.sleep(0.05)
+            # Send a frame from "other" — edge source accepts it (downstream, source != agent)
+            await bus.send(
+                BusFrameMessage(
+                    source="other",
+                    frame=TextFrame(text="from_bus"),
+                    direction=FrameDirection.DOWNSTREAM,
+                )
+            )
+            await asyncio.sleep(0.05)
+            await task.queue_frame(EndFrame())
+
+        await bus.start()
+        runner = PipelineRunner()
+        await asyncio.gather(runner.run(task), inject_frame())
+        await bus.stop()
+
+        # The frame passes through the identity pipeline and reaches
+        # EdgeSink, which re-broadcasts with source="agent". That's
+        # expected. But it must NOT create a loop — EdgeSource ignores
+        # it because source == "agent".
+        bus_frame_msgs = [m for m in sent if isinstance(m, BusFrameMessage)]
+        from_agent = [m for m in bus_frame_msgs if m.source == "agent"]
+        from_other = [m for m in bus_frame_msgs if m.source == "other"]
+        # One re-broadcast from agent (EdgeSink), one original from other
+        self.assertEqual(len(from_other), 1)
+        self.assertEqual(len(from_agent), 1)
+        # No infinite loop — total is exactly 2
+        self.assertEqual(len(bus_frame_msgs), 2)
+
+    async def test_default_agent_no_edge_sinks(self):
+        """Agent without enable_bus_sinks does not get edge-to-bus wiring."""
+        bus = LocalAgentBus()
+        sent = capture_bus(bus)
+
+        agent = StubAgent("root", bus=bus)
+        task = await agent.create_pipeline_task()
+
+        async def push_frames():
+            await asyncio.sleep(0.05)
+            await agent.queue_frame(TextFrame(text="root_frame"))
+            await asyncio.sleep(0.05)
+            await agent.queue_frame(EndFrame())
+
+        runner = PipelineRunner()
+        await asyncio.gather(runner.run(task), push_frames())
+
+        bus_frame_msgs = [m for m in sent if isinstance(m, BusFrameMessage)]
+        text_msgs = [m for m in bus_frame_msgs if isinstance(m.frame, TextFrame)]
+        self.assertEqual(len(text_msgs), 0)
+
+    async def test_bus_frame_enters_agent_pipeline(self):
+        """Bus frame messages enter the pipeline via edge source processor."""
+        bus = LocalAgentBus()
+        agent = StubAgent("agent", bus=bus, active=True, enable_bus_sinks=True)
+
+        task = await agent.create_pipeline_task()
+
+        received = []
+        task.set_reached_downstream_filter((TextFrame,))
+
+        @task.event_handler("on_frame_reached_downstream")
+        async def on_frame(task, frame):
+            received.append(frame)
+
+        async def inject_frame():
+            await asyncio.sleep(0.05)
+            await bus.send(
+                BusFrameMessage(
+                    source="other",
+                    frame=TextFrame(text="from_bus"),
+                    direction=FrameDirection.DOWNSTREAM,
+                )
+            )
+            await asyncio.sleep(0.05)
+            await task.queue_frame(EndFrame())
+
+        await bus.start()
+        runner = PipelineRunner()
+        await asyncio.gather(runner.run(task), inject_frame())
+        await bus.stop()
+
+        self.assertEqual(len(received), 1)
+        self.assertEqual(received[0].text, "from_bus")
+
+    async def test_direction_preserved_in_bus_frame(self):
+        """Direction is preserved when generated frames are sent to the bus."""
+        bus = LocalAgentBus()
+        sent = capture_bus(bus)
+
+        agent = _GeneratingAgent("agent", bus=bus, enable_bus_sinks=True)
+        task = await agent.create_pipeline_task()
+
+        async def push_frames():
+            await asyncio.sleep(0.05)
+            await agent.queue_frame(TextFrame(text="hello"))
+            await asyncio.sleep(0.05)
+            await agent.queue_frame(EndFrame())
+
+        runner = PipelineRunner()
+        await asyncio.gather(runner.run(task), push_frames())
+
+        bus_frame_msgs = [m for m in sent if isinstance(m, BusFrameMessage)]
+        text_msgs = [m for m in bus_frame_msgs if isinstance(m.frame, TextFrame)]
+        generated = [m for m in text_msgs if m.frame.text == "generated_hello"]
+        self.assertEqual(len(generated), 1)
+        self.assertEqual(generated[0].direction, FrameDirection.DOWNSTREAM)
 
 
 if __name__ == "__main__":

@@ -8,7 +8,6 @@ import asyncio
 import unittest
 
 from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.task import PipelineTask
 from pipecat.processors.filters.identity_filter import IdentityFilter
 
 from pipecat_agents.agents.base_agent import BaseAgent
@@ -25,9 +24,8 @@ from pipecat_agents.runner.runner import AgentRunner
 class StubAgent(BaseAgent):
     """Minimal agent subclass for testing."""
 
-    async def build_pipeline_task(self) -> PipelineTask:
-        pipeline = Pipeline([IdentityFilter()])
-        return PipelineTask(pipeline, cancel_on_idle_timeout=False)
+    async def build_pipeline(self) -> Pipeline:
+        return Pipeline([IdentityFilter()])
 
 
 class TestAgentRunner(unittest.IsolatedAsyncioTestCase):

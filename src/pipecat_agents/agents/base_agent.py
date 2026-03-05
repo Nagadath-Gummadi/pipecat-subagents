@@ -12,11 +12,19 @@ agent lifecycle, activation, transfer, and parent-child relationships.
 
 import asyncio
 from abc import abstractmethod
-from typing import Optional
+from typing import Optional, Tuple, Type
 
 from loguru import logger
-from pipecat.frames.frames import CancelFrame, EndFrame, StartFrame
+from pipecat.frames.frames import (
+    CancelFrame,
+    EndFrame,
+    Frame,
+    StartFrame,
+    StopFrame,
+)
+from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.task import PipelineTask
+from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.utils.base_object import BaseObject
 
 from pipecat_agents.bus import (
@@ -32,39 +40,87 @@ from pipecat_agents.bus import (
     BusMessage,
 )
 from pipecat_agents.bus.messages import BusFrameMessage
+from pipecat_agents.bus.subscriber import BusSubscriber
+
+_LIFECYCLE_FRAMES = (StartFrame, EndFrame, CancelFrame, StopFrame)
 
 
-class BaseAgent(BaseObject):
+class _BusEdgeProcessor(FrameProcessor, BusSubscriber):
+    """Pipeline edge that bridges pipeline frames and bus messages.
+
+    Captures pipeline frames traveling in ``direction`` and sends them to the
+    bus.  Receives bus frames traveling in the *opposite* direction and pushes
+    them into the pipeline.
+
+    Place at pipeline start with ``direction=UPSTREAM`` or at pipeline end with
+    ``direction=DOWNSTREAM``.
+    """
+
+    def __init__(self, *, bus, agent, direction, exclude_frames=None, **kwargs):
+        super().__init__(**kwargs)
+        self._bus = bus
+        self._agent = agent
+        self._direction = direction
+        self._exclude_frames = exclude_frames or ()
+        self._bus.subscribe(self)
+
+    async def cleanup(self):
+        await super().cleanup()
+        self._bus.unsubscribe(self)
+
+    async def process_frame(self, frame, direction):
+        await super().process_frame(frame, direction)
+        await self.push_frame(frame, direction)
+
+        if direction != self._direction:
+            return
+        if isinstance(frame, _LIFECYCLE_FRAMES):
+            return
+        if isinstance(frame, self._exclude_frames):
+            return
+        await self._bus.send(
+            BusFrameMessage(source=self._agent.name, frame=frame, direction=direction)
+        )
+
+    async def on_bus_message(self, message):
+        if not isinstance(message, BusFrameMessage):
+            return
+        if message.source == self._agent.name:
+            return
+        if message.direction == self._direction:
+            return
+        if not self._agent.active:
+            return
+        if message.target and message.target != self._agent.name:
+            return
+        await self.push_frame(message.frame, message.direction)
+
+
+class BaseAgent(BaseObject, BusSubscriber):
     """Abstract base class for agents in the multi-agent framework.
 
-    Each agent owns a Pipecat pipeline whose processors are defined by
-    subclasses. The pipeline runs continuously once started, regardless
-    of whether the agent is active.
+    Each agent owns a Pipecat pipeline defined by subclasses via
+    ``build_pipeline()``. The pipeline runs continuously once started,
+    regardless of whether the agent is active.
 
-    **Active state**: An agent is *active* when it is receiving frames
-    from other agents. Lifecycle messages (activation, end, cancel) are
-    always delivered regardless of active state.
+    An agent is *active* when it is receiving frames from other agents.
+    Lifecycle messages (activation, end, cancel) are always delivered
+    regardless of active state.
 
-    Overridable lifecycle methods (call ``super()``):
+    Overridable lifecycle methods (always call ``super()``):
 
-        on_agent_started(): Called once when the agent's pipeline is ready.
-            Use for one-time setup.
-
-        on_agent_activated(args): Called each time the agent is activated
-            (via ``activate_agent()``, ``transfer_to()``, or ``active=True``).
-            Receives optional `AgentActivationArgs`.
-
-        on_agent_deactivated(): Called when ``deactivate_agent()`` is called.
-
-        on_bus_message(message): Called for non-frame bus messages after
-            default lifecycle handling.
+    - ``on_agent_started()``: Called once when the agent's pipeline is ready.
+    - ``on_agent_activated(args)``: Called each time the agent is activated.
+    - ``on_agent_deactivated()``: Called when the agent is deactivated.
+    - ``on_bus_message(message)``: Called for bus messages after default
+      lifecycle handling.
 
     Event handlers:
 
-        on_agent_started(agent)
-        on_agent_activated(agent, args)
-        on_agent_deactivated(agent)
-        on_bus_message(agent, message)
+    - on_agent_started(agent)
+    - on_agent_activated(agent, args)
+    - on_agent_deactivated(agent)
+    - on_bus_message(agent, message)
 
     Example::
 
@@ -81,6 +137,8 @@ class BaseAgent(BaseObject):
         *,
         bus: AgentBus,
         active: bool = False,
+        enable_bus_sinks: bool = False,
+        exclude_frames: Optional[Tuple[Type[Frame], ...]] = None,
     ):
         """Initialize the BaseAgent.
 
@@ -90,28 +148,31 @@ class BaseAgent(BaseObject):
             active: Whether the agent starts active (receiving frames
                 from other agents). When True, ``on_agent_activated``
                 fires after the pipeline starts. Defaults to False.
+            enable_bus_sinks: Whether to forward pipeline frames to the
+                bus and receive frames from the bus. Defaults to False.
+            exclude_frames: Frame types to exclude from bus forwarding.
+                Lifecycle frames are always excluded. Only used when
+                ``enable_bus_sinks`` is True.
         """
         super().__init__(name=name)
         self._bus = bus
         self._parent: Optional[str] = None
         self._active = active
+        self._enable_bus_sinks = enable_bus_sinks
         self._task: Optional[PipelineTask] = None
         self._children: list["BaseAgent"] = []
         self._finished: asyncio.Event = asyncio.Event()
         self._pipeline_started = False
         self._pending_activation = active
         self._activation_args: Optional[AgentActivationArgs] = None
-        self._message_queue: asyncio.Queue[BusMessage] = asyncio.Queue()
-        self._message_task: Optional[asyncio.Task] = None
+        self._exclude_frames = exclude_frames
 
         self._register_event_handler("on_agent_started")
         self._register_event_handler("on_agent_activated")
         self._register_event_handler("on_agent_deactivated")
         self._register_event_handler("on_bus_message")
 
-        @bus.event_handler("on_message")
-        async def on_message(bus, message: BusMessage):
-            await self._handle_bus_message(message)
+        self._bus.subscribe(self)
 
     @property
     def bus(self) -> AgentBus:
@@ -150,11 +211,7 @@ class BaseAgent(BaseObject):
         return self._activation_args
 
     async def on_agent_started(self) -> None:
-        """Called once when the agent's pipeline is ready.
-
-        Override in subclasses for one-time setup. Always call
-        ``super().on_agent_started()``.
-        """
+        """Called once when the agent's pipeline is ready."""
         pass
 
     async def on_agent_activated(self, args: Optional[AgentActivationArgs]) -> None:
@@ -178,14 +235,22 @@ class BaseAgent(BaseObject):
         pass
 
     async def on_bus_message(self, message: BusMessage) -> None:
-        """Handle non-frame bus messages.
+        """Process an incoming bus message.
 
-        Override to handle custom bus messages. The default implementation
-        handles activation, end, and cancel messages.
+        Handles frame delivery, activation, end, and cancel messages.
+        Messages targeted at other agents are ignored.
 
         Args:
-            message: The `BusMessage` to handle.
+            message: The `BusMessage` to process.
         """
+        # Frame messages are handled by edge processors
+        if isinstance(message, BusFrameMessage):
+            return
+
+        # Ignore targeted messages for other agents
+        if message.target and message.target != self.name:
+            return
+
         if isinstance(message, BusActivateAgentMessage):
             await self._activate(message)
         elif isinstance(message, BusEndAgentMessage):
@@ -193,33 +258,86 @@ class BaseAgent(BaseObject):
         elif isinstance(message, BusCancelAgentMessage):
             await self._cancel(message)
 
-    @abstractmethod
-    async def build_pipeline_task(self) -> PipelineTask:
-        """Build and return a `PipelineTask` for this agent.
+        await self._call_event_handler("on_bus_message", message)
 
-        Subclasses implement this to create their pipeline with whatever
-        processors and configuration they need.
+    async def setup(self) -> None:
+        """Perform pre-pipeline setup such as adding sub-agents and wiring events.
 
-        Returns:
-            The created `PipelineTask`.
+        Called by ``create_pipeline_task()`` before ``build_pipeline()``.
+        Override in subclasses to add child agents via ``add_agent()``,
+        register transport event handlers, or perform other initialization.
+
+        The default implementation is a no-op.
         """
         pass
+
+    @abstractmethod
+    async def build_pipeline(self) -> Pipeline:
+        """Return this agent's pipeline.
+
+        Subclasses implement this to define their pipeline.  When
+        ``enable_bus_sinks`` is True, edge-to-bus sink processors are added around
+        the returned pipeline.
+
+        Returns:
+            A ``Pipeline`` object.
+
+        """
+        pass
+
+    def build_pipeline_task(self, pipeline: Pipeline) -> PipelineTask:
+        """Create the ``PipelineTask`` for this agent's pipeline.
+
+        Override to customize task parameters (e.g. enable interruptions).
+        The default creates a task with default ``PipelineParams``.
+
+        Args:
+            pipeline: The fully assembled pipeline (including any
+                edge-to-bus wiring).
+
+        Returns:
+            A ``PipelineTask``.
+        """
+        return PipelineTask(
+            pipeline,
+            cancel_on_idle_timeout=False,
+            enable_rtvi=False,
+        )
 
     async def create_pipeline_task(self) -> PipelineTask:
         """Create and configure the agent's pipeline task.
 
-        Calls ``build_pipeline_task()`` to get the pipeline from the
-        subclass, then sets up agent lifecycle management. Typically
-        called by the runner, not directly by user code.
+        Calls ``setup()``, ``build_pipeline()``, and
+        ``build_pipeline_task()``, then wires lifecycle event handling.
 
         Returns:
             The configured `PipelineTask`.
         """
-        task = await self.build_pipeline_task()
+        await self.setup()
+        user_pipeline = await self.build_pipeline()
+
+        # Wrap with edge-to-bus processors when opted in
+        if self._enable_bus_sinks:
+            edge_source = _BusEdgeProcessor(
+                bus=self._bus,
+                agent=self,
+                direction=FrameDirection.UPSTREAM,
+                exclude_frames=self._exclude_frames,
+                name=f"{self.name}::EdgeSource",
+            )
+            edge_sink = _BusEdgeProcessor(
+                bus=self._bus,
+                agent=self,
+                direction=FrameDirection.DOWNSTREAM,
+                exclude_frames=self._exclude_frames,
+                name=f"{self.name}::EdgeSink",
+            )
+            pipeline = Pipeline([edge_source, user_pipeline, edge_sink])
+        else:
+            pipeline = Pipeline([user_pipeline])
+
+        task = self.build_pipeline_task(pipeline)
         self._task = task
-        self._message_task = asyncio.create_task(
-            self._message_loop(), name=f"agent_{self.name}_messages"
-        )
 
         @task.event_handler("on_pipeline_started")
         async def on_pipeline_started(task, frame: StartFrame):
@@ -235,8 +353,6 @@ class BaseAgent(BaseObject):
         @task.event_handler("on_pipeline_finished")
         async def on_pipeline_finished(task, frame):
             logger.debug(f"Agent '{self}': pipeline finished ({frame})")
-            if self._message_task:
-                self._message_task.cancel()
             if isinstance(frame, CancelFrame):
                 await self.cancel()
 
@@ -245,11 +361,8 @@ class BaseAgent(BaseObject):
     async def end(self, *, reason: Optional[str] = None) -> None:
         """Request a graceful end of the session.
 
-        The runner will coordinate an orderly shutdown of all agents.
-
         Args:
-            reason: Optional human-readable reason for ending (e.g.
-                "customer said goodbye").
+            reason: Optional human-readable reason for ending.
         """
         await self.send_message(BusEndMessage(source=self.name, reason=reason))
 
@@ -258,11 +371,10 @@ class BaseAgent(BaseObject):
         await self.send_message(BusCancelMessage(source=self.name))
 
     async def add_agent(self, agent: "BaseAgent") -> None:
-        """Register a child agent with the runner.
+        """Register a child agent under this parent.
 
-        Sets this agent as the child's parent and registers it with
-        the runner. The child agent's lifecycle (end, cancel) is
-        automatically managed by this parent agent.
+        The child's lifecycle (end, cancel) is automatically managed
+        by this parent agent.
 
         Args:
             agent: The child `BaseAgent` instance to add.
@@ -281,10 +393,7 @@ class BaseAgent(BaseObject):
         await self._finished.wait()
 
     def notify_finished(self) -> None:
-        """Signal that this agent's pipeline has finished.
-
-        Called by the runner when the agent completes.
-        """
+        """Signal that this agent's pipeline has finished."""
         self._finished.set()
 
     async def activate_agent(
@@ -341,23 +450,31 @@ class BaseAgent(BaseObject):
         """
         await self._bus.send(message)
 
-    async def queue_frame(self, frame) -> None:
+    async def queue_frame(
+        self, frame: Frame, direction: FrameDirection = FrameDirection.DOWNSTREAM
+    ) -> None:
         """Queue a frame into this agent's pipeline task.
 
         Args:
             frame: The frame to queue into the pipeline task.
+            direction: Direction the frame should travel. Defaults to
+                ``FrameDirection.DOWNSTREAM``.
         """
         if self._task:
-            await self._task.queue_frame(frame)
+            await self._task.queue_frame(frame, direction)
 
-    async def queue_frames(self, frames) -> None:
+    async def queue_frames(
+        self, frames, direction: FrameDirection = FrameDirection.DOWNSTREAM
+    ) -> None:
         """Queue multiple frames into this agent's pipeline task.
 
         Args:
             frames: The frames to queue into the pipeline task.
+            direction: Direction the frames should travel. Defaults to
+                ``FrameDirection.DOWNSTREAM``.
         """
         if self._task:
-            await self._task.queue_frames(frames)
+            await self._task.queue_frames(frames, direction)
 
     async def _activate(self, message: BusActivateAgentMessage) -> None:
         """Handle an activation message."""
@@ -394,30 +511,3 @@ class BaseAgent(BaseObject):
             self._pending_activation = False
             await self.on_agent_activated(self._activation_args)
             await self._call_event_handler("on_agent_activated", self._activation_args)
-
-    async def _handle_bus_message(self, message: BusMessage) -> None:
-        """Handle a raw bus message: filter, skip frame messages, enqueue others.
-
-        Non-frame messages are enqueued for the agent's message loop so
-        that the bus receive loop is never blocked by long-running
-        handlers (e.g. ``_end()`` waiting for children to finish).
-        """
-        # Ignore targeted messages for other agents
-        if message.target and message.target != self.name:
-            return
-
-        # Frame messages are handled by BusInputProcessor in the pipeline
-        if isinstance(message, BusFrameMessage):
-            return
-
-        await self._message_queue.put(message)
-
-    async def _message_loop(self) -> None:
-        """Process queued bus messages sequentially."""
-        try:
-            while True:
-                message = await self._message_queue.get()
-                await self.on_bus_message(message)
-                await self._call_event_handler("on_bus_message", message)
-        except asyncio.CancelledError:
-            pass

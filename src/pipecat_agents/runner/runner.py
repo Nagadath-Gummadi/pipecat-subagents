@@ -24,9 +24,10 @@ from pipecat_agents.bus import (
     BusMessage,
     LocalAgentBus,
 )
+from pipecat_agents.bus.subscriber import BusSubscriber
 
 
-class AgentRunner(BaseObject):
+class AgentRunner(BaseObject, BusSubscriber):
     """Lifecycle orchestrator for multi-agent systems.
 
     Manages agent pipelines, coordinates startup and shutdown, and
@@ -73,14 +74,27 @@ class AgentRunner(BaseObject):
 
         self._register_event_handler("on_runner_started")
 
-        @self._bus.event_handler("on_message")
-        async def on_message(bus, message: BusMessage):
-            await self._handle_bus_message(message)
+        self._bus.subscribe(self)
 
     @property
     def bus(self) -> AgentBus:
         """The bus instance for agent communication."""
         return self._bus
+
+    async def on_bus_message(self, message: BusMessage) -> None:
+        """Handle bus messages directed at the runner.
+
+        Args:
+            message: The bus message to handle.
+        """
+        if message.source == self.name:
+            return
+        if isinstance(message, BusEndMessage):
+            asyncio.create_task(self.end(message.reason))
+        elif isinstance(message, BusCancelMessage):
+            asyncio.create_task(self.cancel(message.reason))
+        elif isinstance(message, BusAddAgentMessage) and message.agent:
+            await self.add_agent(message.agent)
 
     async def add_agent(self, agent: BaseAgent) -> None:
         """Add an agent to this runner.
@@ -169,17 +183,6 @@ class AgentRunner(BaseObject):
                     BusCancelAgentMessage(source=self.name, target=name, reason=reason)
                 )
         await self._pipecat_runner.cancel()
-
-    async def _handle_bus_message(self, message: BusMessage) -> None:
-        """Handle bus messages directed at the runner."""
-        if message.source == self.name:
-            return
-        if isinstance(message, BusEndMessage):
-            asyncio.create_task(self.end(message.reason))
-        elif isinstance(message, BusCancelMessage):
-            asyncio.create_task(self.cancel(message.reason))
-        elif isinstance(message, BusAddAgentMessage) and message.agent:
-            await self.add_agent(message.agent)
 
     async def _start_agent_task(self, agent: BaseAgent) -> None:
         """Create an agent's pipeline task and start it as a background asyncio task."""
