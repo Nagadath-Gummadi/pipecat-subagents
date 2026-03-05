@@ -7,7 +7,7 @@
 import asyncio
 import unittest
 
-from pipecat_agents.bus import BusMessage, LocalAgentBus
+from pipecat_agents.bus import BusMessage, BusSubscriber, LocalAgentBus
 
 
 class TestLocalAgentBus(unittest.IsolatedAsyncioTestCase):
@@ -19,59 +19,38 @@ class TestLocalAgentBus(unittest.IsolatedAsyncioTestCase):
         got = await asyncio.wait_for(bus.receive(), timeout=1.0)
         self.assertIs(got, msg)
 
-    async def test_on_message_dispatched_to_subscribers(self):
-        """Messages dispatched via the receive loop reach on_message subscribers."""
+    async def test_multiple_messages_in_order(self):
+        """Messages are dispatched in FIFO order."""
         bus = LocalAgentBus()
         received = []
 
-        @bus.event_handler("on_message")
-        async def subscriber(bus, message):
-            received.append(message)
+        class OrderSub(BusSubscriber):
+            async def on_bus_message(self, message):
+                received.append(message)
+
+        bus.subscribe(OrderSub())
 
         await bus.start()
-        msg = BusMessage(source="agent_a")
-        await bus.send(msg)
-
-        # Give the receive loop a tick to dispatch
-        await asyncio.sleep(0.05)
+        msgs = [BusMessage(source=f"agent_{i}") for i in range(5)]
+        for m in msgs:
+            await bus.send(m)
+        await asyncio.sleep(0.1)
         await bus.stop()
 
-        self.assertEqual(len(received), 1)
-        self.assertIs(received[0], msg)
-
-    async def test_multiple_subscribers_receive_same_message(self):
-        """All on_message subscribers receive every message."""
-        bus = LocalAgentBus()
-        received_1 = []
-        received_2 = []
-
-        @bus.event_handler("on_message")
-        async def sub1(bus, message):
-            received_1.append(message)
-
-        @bus.event_handler("on_message")
-        async def sub2(bus, message):
-            received_2.append(message)
-
-        await bus.start()
-        msg = BusMessage(source="agent_a")
-        await bus.send(msg)
-        await asyncio.sleep(0.05)
-        await bus.stop()
-
-        self.assertEqual(len(received_1), 1)
-        self.assertEqual(len(received_2), 1)
-        self.assertIs(received_1[0], msg)
-        self.assertIs(received_2[0], msg)
+        self.assertEqual(len(received), 5)
+        for sent, got in zip(msgs, received):
+            self.assertIs(sent, got)
 
     async def test_start_stop_lifecycle(self):
         """start() begins the receive loop, stop() cancels it cleanly."""
         bus = LocalAgentBus()
         received = []
 
-        @bus.event_handler("on_message")
-        async def subscriber(bus, message):
-            received.append(message)
+        class LifecycleSub(BusSubscriber):
+            async def on_bus_message(self, message):
+                received.append(message)
+
+        bus.subscribe(LifecycleSub())
 
         await bus.start()
 
@@ -87,25 +66,107 @@ class TestLocalAgentBus(unittest.IsolatedAsyncioTestCase):
         await asyncio.sleep(0.05)
         self.assertEqual(len(received), 1)
 
-    async def test_multiple_messages_in_order(self):
-        """Messages are dispatched in FIFO order."""
+
+class TestBusSubscriber(unittest.IsolatedAsyncioTestCase):
+    async def test_subscribe_calls_on_bus_message(self):
+        """subscribe() delivers messages to subscriber's on_bus_message."""
         bus = LocalAgentBus()
         received = []
 
-        @bus.event_handler("on_message")
-        async def subscriber(bus, message):
-            received.append(message)
+        class MySub(BusSubscriber):
+            async def on_bus_message(self, message):
+                received.append(message)
+
+        bus.subscribe(MySub())
 
         await bus.start()
-        msgs = [BusMessage(source=f"agent_{i}") for i in range(5)]
-        for m in msgs:
-            await bus.send(m)
-        await asyncio.sleep(0.1)
+        msg = BusMessage(source="agent_a")
+        await bus.send(msg)
+        await asyncio.sleep(0.05)
         await bus.stop()
 
-        self.assertEqual(len(received), 5)
-        for sent, got in zip(msgs, received):
-            self.assertIs(sent, got)
+        self.assertEqual(len(received), 1)
+        self.assertIs(received[0], msg)
+
+    async def test_multiple_subscribers_independent(self):
+        """Two subscribers each get every message on their own task."""
+        bus = LocalAgentBus()
+        received_1 = []
+        received_2 = []
+
+        class Sub1(BusSubscriber):
+            async def on_bus_message(self, message):
+                received_1.append(message)
+
+        class Sub2(BusSubscriber):
+            async def on_bus_message(self, message):
+                received_2.append(message)
+
+        bus.subscribe(Sub1())
+        bus.subscribe(Sub2())
+
+        await bus.start()
+        msg = BusMessage(source="agent_a")
+        await bus.send(msg)
+        await asyncio.sleep(0.05)
+        await bus.stop()
+
+        self.assertEqual(len(received_1), 1)
+        self.assertEqual(len(received_2), 1)
+        self.assertIs(received_1[0], msg)
+        self.assertIs(received_2[0], msg)
+
+    async def test_unsubscribe_stops_delivery(self):
+        """unsubscribe() prevents further message delivery."""
+        bus = LocalAgentBus()
+        received = []
+
+        class MySub(BusSubscriber):
+            async def on_bus_message(self, message):
+                received.append(message)
+
+        sub = MySub()
+        bus.subscribe(sub)
+
+        await bus.start()
+        await bus.send(BusMessage(source="a"))
+        await asyncio.sleep(0.05)
+        self.assertEqual(len(received), 1)
+
+        bus.unsubscribe(sub)
+        await bus.send(BusMessage(source="b"))
+        await asyncio.sleep(0.05)
+        await bus.stop()
+
+        # Should still be 1 — second message not delivered
+        self.assertEqual(len(received), 1)
+
+    async def test_slow_subscriber_does_not_block_others(self):
+        """A slow subscriber does not block a fast subscriber."""
+        bus = LocalAgentBus()
+        fast_received = []
+        fast_done = asyncio.Event()
+
+        class SlowSub(BusSubscriber):
+            async def on_bus_message(self, message):
+                await asyncio.sleep(0.5)
+
+        class FastSub(BusSubscriber):
+            async def on_bus_message(self, message):
+                fast_received.append(message)
+                fast_done.set()
+
+        bus.subscribe(SlowSub())
+        bus.subscribe(FastSub())
+
+        await bus.start()
+        await bus.send(BusMessage(source="a"))
+
+        # Fast subscriber should get message quickly despite slow subscriber
+        await asyncio.wait_for(fast_done.wait(), timeout=0.1)
+        await bus.stop()
+
+        self.assertEqual(len(fast_received), 1)
 
 
 if __name__ == "__main__":

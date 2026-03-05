@@ -16,6 +16,7 @@ from abc import abstractmethod
 from pipecat.utils.base_object import BaseObject
 
 from pipecat_agents.bus.messages import BusMessage
+from pipecat_agents.bus.subscriber import BusSubscriber
 
 
 class AgentBus(BaseObject):
@@ -23,18 +24,11 @@ class AgentBus(BaseObject):
 
     Subclasses implement `send()` and `receive()`. The base class runs a
     background receive loop that dispatches incoming messages to all
-    `on_message` subscribers in order.
+    subscribers.
 
-    Events:
-        on_message(bus, message: BusMessage): Fired for every message
-            received by the bus. Subscribers filter by source/target.
-
-    Example::
-
-        @bus.event_handler("on_message")
-        async def on_message(bus, message: BusMessage):
-            if message.target == self._name:
-                await self._handle(message)
+    Subscribers are registered via `subscribe()`. Each subscriber gets
+    its own queue and task so that slow handlers never block other
+    subscribers.
     """
 
     def __init__(self, **kwargs):
@@ -44,21 +38,66 @@ class AgentBus(BaseObject):
             **kwargs: Additional arguments passed to `BaseObject`.
         """
         super().__init__(**kwargs)
-        self._register_event_handler("on_message", sync=True)
         self._receive_task: asyncio.Task | None = None
+        self._subscribers: list[tuple[BusSubscriber, asyncio.Queue]] = []
+        self._subscriber_tasks: list[asyncio.Task] = []
+        self._running = False
+
+    def subscribe(self, subscriber: BusSubscriber) -> None:
+        """Register a subscriber to receive bus messages.
+
+        Each subscriber gets a dedicated queue. If the bus is already
+        running, a delivery task is started immediately.
+
+        Args:
+            subscriber: The `BusSubscriber` to register.
+        """
+        queue: asyncio.Queue = asyncio.Queue()
+        self._subscribers.append((subscriber, queue))
+        if self._running:
+            task = asyncio.create_task(self._subscriber_task(subscriber, queue))
+            self._subscriber_tasks.append(task)
+
+    def unsubscribe(self, subscriber: BusSubscriber) -> None:
+        """Remove a subscriber and cancel its delivery task.
+
+        Args:
+            subscriber: The `BusSubscriber` to remove.
+        """
+        for i, (sub, _queue) in enumerate(self._subscribers):
+            if sub is subscriber:
+                if i < len(self._subscriber_tasks):
+                    self._subscriber_tasks[i].cancel()
+                    self._subscriber_tasks.pop(i)
+                self._subscribers.pop(i)
+                return
 
     async def start(self):
-        """Start the background receive loop."""
+        """Start the background receive loop and all subscriber tasks."""
+        self._running = True
+        self._subscriber_tasks = [
+            asyncio.create_task(self._subscriber_task(sub, queue))
+            for sub, queue in self._subscribers
+        ]
         self._receive_task = asyncio.create_task(self._receive_loop())
 
     async def stop(self):
-        """Stop the background receive loop."""
+        """Stop the background receive loop and all subscriber tasks."""
+        self._running = False
+        for task in self._subscriber_tasks:
+            task.cancel()
         if self._receive_task:
             self._receive_task.cancel()
             try:
                 await self._receive_task
             except asyncio.CancelledError:
                 pass
+        for task in self._subscriber_tasks:
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+        self._subscriber_tasks.clear()
 
     @abstractmethod
     async def send(self, message: BusMessage) -> None:
@@ -78,4 +117,15 @@ class AgentBus(BaseObject):
         """Pull messages from `receive()` and dispatch to subscribers."""
         while True:
             message = await self.receive()
-            await self._call_event_handler("on_message", message)
+            # Fan out to subscriber queues
+            for _sub, queue in self._subscribers:
+                queue.put_nowait(message)
+
+    async def _subscriber_task(self, subscriber: BusSubscriber, queue: asyncio.Queue):
+        """Deliver messages from *queue* to *subscriber*."""
+        try:
+            while True:
+                message = await queue.get()
+                await subscriber.on_bus_message(message)
+        except asyncio.CancelledError:
+            pass

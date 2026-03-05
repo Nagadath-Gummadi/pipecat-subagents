@@ -11,17 +11,18 @@ the runner. Key components:
 
 - `AgentBus` -- abstract base class defining the send/receive interface.
 - `LocalAgentBus` -- in-process implementation backed by an ``asyncio.Queue``.
-- `BusInputProcessor` / `BusOutputProcessor` -- frame processors that bridge
-  Pipecat pipelines with the bus, injecting incoming bus frames into the
-  pipeline and capturing outgoing frames for publication.
+- `BusBridgeProcessor` -- bidirectional mid-pipeline bridge for
+  transport/session agents that exchanges frames with other agents
+  through the bus.
 - `BusMessage` and its subclasses -- the typed message hierarchy used for
   agent lifecycle events (activation, cancellation, shutdown), session events
   (client connect/disconnect, turn boundaries), and frame transport.
 """
 
+from pipecat_agents.bus.bridge_processor import BusBridgeProcessor
 from pipecat_agents.bus.bus import AgentBus
-from pipecat_agents.bus.input_processor import BusInputProcessor
 from pipecat_agents.bus.local_bus import LocalAgentBus
+from pipecat_agents.bus.subscriber import BusSubscriber
 from pipecat_agents.bus.messages import (
     AgentActivationArgs,
     BusActivateAgentMessage,
@@ -42,17 +43,16 @@ from pipecat_agents.bus.messages import (
     BusUserTurnStartedMessage,
     BusUserTurnStoppedMessage,
 )
-from pipecat_agents.bus.output_processor import BusOutputProcessor
 
 __all__ = [
     "AgentBus",
     "LocalAgentBus",
     "AgentActivationArgs",
-    "BusInputProcessor",
     "BusAddAgentMessage",
     "BusAgentRegisteredMessage",
     "BusAssistantTurnStartedMessage",
     "BusAssistantTurnStoppedMessage",
+    "BusBridgeProcessor",
     "BusCancelAgentMessage",
     "BusCancelMessage",
     "BusClientConnectedMessage",
@@ -62,7 +62,7 @@ __all__ = [
     "BusFrameMessage",
     "BusLocalMixin",
     "BusMessage",
-    "BusOutputProcessor",
+    "BusSubscriber",
     "BusActivateAgentMessage",
     "BusUserTranscriptMessage",
     "BusUserTurnStartedMessage",

@@ -13,6 +13,7 @@ from pipecat.processors.frame_processor import FrameDirection
 from pipecat_agents.bus import (
     BusFrameMessage,
     BusMessage,
+    BusSubscriber,
     LocalAgentBus,
 )
 
@@ -29,18 +30,21 @@ class TestBusMessageRouting(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(msg.target, "agent_b")
 
     async def test_broadcast_reaches_all_subscribers(self):
-        """Broadcast messages (no target) reach all on_message subscribers."""
+        """Broadcast messages (no target) reach all subscribers."""
         bus = LocalAgentBus()
         received_a = []
         received_b = []
 
-        @bus.event_handler("on_message")
-        async def sub_a(bus, message):
-            received_a.append(message)
+        class SubA(BusSubscriber):
+            async def on_bus_message(self, message):
+                received_a.append(message)
 
-        @bus.event_handler("on_message")
-        async def sub_b(bus, message):
-            received_b.append(message)
+        class SubB(BusSubscriber):
+            async def on_bus_message(self, message):
+                received_b.append(message)
+
+        bus.subscribe(SubA())
+        bus.subscribe(SubB())
 
         await bus.start()
         msg = BusMessage(source="agent_x")  # no target
