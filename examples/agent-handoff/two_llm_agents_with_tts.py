@@ -99,7 +99,8 @@ class AcmeTTSAgent(LLMAgent):
                 run_llm=True,
             )
         )
-        await self.transfer_to(
+        await self.deactivate_agent()
+        await self.activate_agent(
             agent,
             args=AgentActivationArgs(
                 messages=[{"role": "system", "content": reason}],

@@ -106,8 +106,6 @@ class AgentActivationArgs:
 class BusActivateAgentMessage(BusMessage):
     """Tells a targeted agent to become active and start processing.
 
-    Sent by an agent via `activate_agent()` or `transfer_to()`.
-
     Parameters:
         args: Optional activation arguments forwarded to ``on_agent_activated``.
     """

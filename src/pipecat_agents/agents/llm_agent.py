@@ -167,37 +167,32 @@ class LLMAgent(BaseAgent):
         await self._close_function_call(result_callback)
         await super().end(reason=reason)
 
-    async def transfer_to(
+    async def activate_agent(
         self,
         agent_name: str,
         *,
         args: Optional[AgentActivationArgs] = None,
         result_callback: Optional[FunctionCallResultCallback] = None,
     ) -> None:
-        """Deactivate this agent and activate the named agent.
-
-        When called from a ``@tool`` handler, pass ``params.result_callback`` to
-        ensure any pending LLM output is fully delivered before transferring.
+        """Activate another agent without stopping this one.
 
         Args:
-            agent_name: The name of the agent to transfer to.
-            args: Optional `AgentActivationArgs` forwarded to the target
-                agent's ``on_agent_activated`` handler.
+            agent_name: The name of the agent to activate.
+            args: Optional `AgentActivationArgs` forwarded to the target agent's
+                ``on_agent_activated`` handler.
             result_callback: The ``result_callback`` from
                 `FunctionCallParams`.
-
         """
         await self._close_function_call(result_callback)
-        await super().transfer_to(agent_name, args=args)
+        await super().activate_agent(agent_name, args=args)
 
     async def _close_function_call(
         self, result_callback: Optional[FunctionCallResultCallback]
     ) -> None:
         """Close out an in-progress function call before taking action.
 
-        Used by `end()` and `transfer_to()` to ensure the function call is fully
-        resolved and all resulting frames have been fully delivered before the
-        agent ends or transfers.
+        Used to ensure the function call is fully resolved and all resulting
+        frames have been fully delivered before the agent ends or transfers.
 
         Sends a `PipelineFlushFrame` probe upstream through the pipeline.
         When it reaches the top it is bounced back downstream.  When it

@@ -196,7 +196,8 @@ class ReservationAgent(FlowsAgent):
             reason (str): Why the user is being transferred.
         """
         logger.info(f"Agent '{self.name}': transferring to '{agent}' ({reason})")
-        await self.transfer_to(
+        await self.deactivate_agent()
+        await self.activate_agent(
             agent,
             args=AgentActivationArgs(
                 messages=[{"role": "system", "content": reason}],
@@ -230,7 +231,8 @@ class RouterAgent(LLMAgent):
             reason (str): Why the user is being transferred.
         """
         logger.info(f"Agent '{self.name}': transferring to '{agent}' ({reason})")
-        await self.transfer_to(
+        await self.deactivate_agent()
+        await self.activate_agent(
             agent,
             args=AgentActivationArgs(
                 messages=[{"role": "system", "content": reason}],

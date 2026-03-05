@@ -221,8 +221,7 @@ class BaseAgent(BaseObject, BusSubscriber):
         append messages). Always call ``super().on_agent_activated(args)``.
 
         Args:
-            args: Optional activation arguments passed by
-                ``activate_agent()`` or ``transfer_to()``.
+            args: Optional activation arguments.
         """
         pass
 
@@ -404,10 +403,6 @@ class BaseAgent(BaseObject, BusSubscriber):
     ) -> None:
         """Activate another agent without stopping this one.
 
-        Unlike ``transfer_to()``, this does not deactivate the current agent.
-        Use this from a main agent to start sub-agents (e.g. activate a router
-        on client connect).
-
         Args:
             agent_name: The name of the agent to activate.
             args: Optional `AgentActivationArgs` forwarded to the target agent's
@@ -423,24 +418,6 @@ class BaseAgent(BaseObject, BusSubscriber):
         self._active = False
         await self.on_agent_deactivated()
         await self._call_event_handler("on_agent_deactivated")
-
-    async def transfer_to(
-        self,
-        agent_name: str,
-        *,
-        args: Optional[AgentActivationArgs] = None,
-    ) -> None:
-        """Deactivate this agent and activate the named agent.
-
-        Args:
-            agent_name: The name of the agent to transfer to.
-            args: Optional `AgentActivationArgs` forwarded to the target
-                agent's ``on_agent_activated`` handler.
-        """
-        await self.deactivate_agent()
-        await self.send_message(
-            BusActivateAgentMessage(source=self.name, target=agent_name, args=args)
-        )
 
     async def send_message(self, message: BusMessage) -> None:
         """Send a message on the bus.

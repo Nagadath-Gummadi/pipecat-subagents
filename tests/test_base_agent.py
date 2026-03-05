@@ -121,30 +121,6 @@ class TestBaseAgentLifecycle(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(agent.active)
 
-    async def test_transfer_to_deactivates_self_and_sends_activate(self):
-        """transfer_to() deactivates self and sends BusActivateAgentMessage."""
-        bus = LocalAgentBus()
-        sent = capture_bus(bus)
-
-        agent = StubAgent("agent_a", bus=bus, active=True)
-
-        deactivated = asyncio.Event()
-
-        @agent.event_handler("on_agent_deactivated")
-        async def on_deactivated(agent):
-            deactivated.set()
-
-        args = AgentActivationArgs(messages=["context"])
-        await agent.transfer_to("agent_b", args=args)
-
-        await asyncio.wait_for(deactivated.wait(), timeout=1.0)
-        self.assertFalse(agent.active)
-
-        activate_msgs = [m for m in sent if isinstance(m, BusActivateAgentMessage)]
-        self.assertEqual(len(activate_msgs), 1)
-        self.assertEqual(activate_msgs[0].target, "agent_b")
-        self.assertIs(activate_msgs[0].args, args)
-
     async def test_activate_agent_sends_activate_without_deactivating_self(self):
         """activate_agent() sends BusActivateAgentMessage without deactivating self."""
         bus = LocalAgentBus()
