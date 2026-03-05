@@ -180,11 +180,24 @@ class LLMAgent(BaseAgent):
             agent_name: The name of the agent to activate.
             args: Optional `AgentActivationArgs` forwarded to the target agent's
                 ``on_agent_activated`` handler.
-            result_callback: The ``result_callback`` from
-                `FunctionCallParams`.
+            result_callback: The ``result_callback`` from `FunctionCallParams`.
         """
         await self._close_function_call(result_callback)
         await super().activate_agent(agent_name, args=args)
+
+    async def deactivate_agent(
+        self, *, result_callback: Optional[FunctionCallResultCallback] = None
+    ) -> None:
+        """Deactivate this agent so it stops receiving frames from other agents.
+
+        When called from a ``@tool`` handler, pass ``params.result_callback`` to
+        ensure any pending LLM output is fully delivered before deactivating.
+
+        Args:
+            result_callback: The ``result_callback`` from `FunctionCallParams`.
+        """
+        await self._close_function_call(result_callback)
+        await super().deactivate_agent()
 
     async def _close_function_call(
         self, result_callback: Optional[FunctionCallResultCallback]
