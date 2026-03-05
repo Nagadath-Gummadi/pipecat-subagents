@@ -13,56 +13,34 @@ for structured conversation flows (nodes, functions, transitions, actions).
 from abc import abstractmethod
 from typing import List, Optional
 
-from pipecat.frames.frames import (
-    LLMFullResponseEndFrame,
-    LLMFullResponseStartFrame,
-    LLMTextFrame,
-    TTSAudioRawFrame,
-    TTSStartedFrame,
-    TTSStoppedFrame,
-)
 from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.task import PipelineParams, PipelineTask
-from pipecat.processors.aggregators.llm_response_universal import LLMContextAggregatorPair
+from pipecat.pipeline.task import PipelineTask
 from pipecat.services.llm_service import LLMService
-from pipecat.services.tts_service import TTSService
 from pipecat_flows import ContextStrategyConfig, FlowManager, FlowsFunctionSchema, NodeConfig
 from pipecat_flows.types import FlowsDirectFunction
 
 from pipecat_agents.agents.base_agent import BaseAgent
 from pipecat_agents.agents.tool import _collect_tools
-from pipecat_agents.bus import AgentBus, BusInputProcessor, BusOutputProcessor
+from pipecat_agents.bus import AgentBus
 from pipecat_agents.bus.messages import AgentActivationArgs
 
 
 class FlowsAgent(BaseAgent):
     """Agent that uses Pipecat Flows for structured conversation.
 
-    Pipeline: ``BusInput → LLM → BusOutput``
-
-    The `FlowManager` is created when the pipeline task is built.
-    This agent shares context with the main pipeline and does not
-    manage its own system messages.
-
-    Use this for LLM services that accept system instructions via a
-    dedicated parameter (e.g. Google Gemini's ``system_instruction``).
-    For services that require system instructions as the first message
-    in the conversation context (e.g. OpenAI), use
-    ``FlowsContextAgent`` instead.
-
-    Overridable lifecycle methods (call ``super()``):
-
-        on_agent_activated(args): Initializes the `FlowManager` with
-            `build_initial_node()` on the first activation, or resumes
-            with `build_resume_node()` on subsequent activations.
+    Manages a ``FlowManager`` for node-based conversation flows with
+    functions, transitions, and actions. On first activation the flow
+    starts at ``build_initial_node()``; subsequent activations resume
+    from ``build_resume_node()``.
 
     Example::
 
         class MyFlowsAgent(FlowsAgent):
-            async def on_agent_activated(self, args):
-                await super().on_agent_activated(args)
-                # Custom activation logic after flow initialization
-                ...
+            def build_llm(self):
+                return OpenAILLMService(api_key="...")
+
+            def build_initial_node(self):
+                return {"name": "start", ...}
     """
 
     def __init__(
@@ -73,7 +51,6 @@ class FlowsAgent(BaseAgent):
         context_strategy: Optional[ContextStrategyConfig] = None,
         global_functions: Optional[List[FlowsFunctionSchema | FlowsDirectFunction]] = None,
         active: bool = False,
-        pipeline_params: Optional[PipelineParams] = None,
     ):
         """Initialize the FlowsAgent.
 
@@ -85,10 +62,13 @@ class FlowsAgent(BaseAgent):
             global_functions: Optional list of functions available at every
                 node, forwarded to `FlowManager`.
             active: Whether the agent starts active. Defaults to False.
-            pipeline_params: Optional `PipelineParams` for this agent's task.
         """
-        super().__init__(name, bus=bus, active=active)
-        self._pipeline_params = pipeline_params or PipelineParams()
+        super().__init__(
+            name,
+            bus=bus,
+            active=active,
+            enable_bus_sinks=True,
+        )
         self._context_strategy = context_strategy
         self._global_functions = global_functions or []
         self._llm: Optional[LLMService] = None
@@ -97,10 +77,6 @@ class FlowsAgent(BaseAgent):
 
     async def on_agent_activated(self, args: Optional[AgentActivationArgs]) -> None:
         """Initialize or resume the flow on activation.
-
-        On the first activation, initializes the `FlowManager` with
-        `build_initial_node()`. On subsequent activations, resumes with
-        `build_resume_node()`.
 
         Args:
             args: Optional activation arguments.
@@ -119,41 +95,13 @@ class FlowsAgent(BaseAgent):
         return self._flow_manager
 
     @abstractmethod
-    def build_context_aggregator(self) -> LLMContextAggregatorPair:
-        """Return the context aggregator pair for the `FlowManager`.
-
-        The `FlowManager` uses the context aggregator to track conversation
-        context across flow nodes. Subclasses must provide an appropriate
-        ``LLMContextAggregatorPair``.
-
-        Returns:
-            An ``LLMContextAggregatorPair`` for the `FlowManager`.
-        """
-        pass
-
-    @abstractmethod
     def build_llm(self) -> LLMService:
-        """Return the LLM service for this agent's pipeline.
+        """Return the LLM service for this agent.
 
         Returns:
-            The configured `LLMService` instance.
+            An `LLMService` instance.
         """
         pass
-
-    def build_tts(self) -> Optional[TTSService]:
-        """Return an optional TTS service for this agent's pipeline.
-
-        When a TTS service is returned, it is inserted after the LLM and
-        before the ``BusOutput``. The ``BusOutput`` is configured to send
-        both text and audio frames to the bus.
-
-        Override in subclasses to give the agent its own voice.  Returns
-        ``None`` by default (no TTS).
-
-        Returns:
-            A ``TTSService`` instance, or ``None``.
-        """
-        return None
 
     @abstractmethod
     def build_initial_node(self) -> NodeConfig:
@@ -180,67 +128,32 @@ class FlowsAgent(BaseAgent):
         """Merge explicit global functions with ``@tool`` decorated methods."""
         return self._global_functions + _collect_tools(self)
 
-    async def build_pipeline_task(self) -> PipelineTask:
-        """Build the pipeline task and create the `FlowManager`.
-
-        Creates the LLM, a `BusOutputProcessor`, wraps them in a pipeline
-        and task. If ``build_tts()`` returns a service, it is inserted
-        after the LLM::
-
-            BusInput → LLM → BusOutput           (no TTS)
-            BusInput → LLM → TTS → BusOutput     (with TTS)
-
-        Then creates a `FlowManager` and registers the
-        ``end_conversation`` action.
+    async def build_pipeline(self) -> Pipeline:
+        """Build the agent's LLM pipeline.
 
         Returns:
-            The created `PipelineTask`.
+            The agent's ``Pipeline``.
         """
         self._llm = self.build_llm()
-        tts = self.build_tts()
 
-        bus_input = BusInputProcessor(
-            bus=self._bus,
-            agent_name=self.name,
-            is_active=lambda: self.active,
-            name=f"{self.name}::BusInput",
-        )
+        return Pipeline([self._llm])
 
-        output_frames = (LLMFullResponseStartFrame, LLMFullResponseEndFrame, LLMTextFrame)
-        if tts:
-            output_frames = output_frames + (TTSAudioRawFrame, TTSStartedFrame, TTSStoppedFrame)
+    async def create_pipeline_task(self) -> PipelineTask:
+        """Create the pipeline task with flow management support.
 
-        bus_output = BusOutputProcessor(
-            bus=self._bus,
-            agent_name=self.name,
-            name=f"{self.name}::BusOutput",
-            output_frames=output_frames,
-        )
-
-        processors = [bus_input, self._llm]
-        if tts:
-            processors.append(tts)
-        processors.append(bus_output)
-
-        pipeline = Pipeline(processors)
-
-        # This agent only has an LLM, so we want disable idle cancellation.
-        task = PipelineTask(
-            pipeline,
-            params=self._pipeline_params,
-            enable_rtvi=False,
-            enable_turn_tracking=False,
-            cancel_on_idle_timeout=False,
-        )
+        Returns:
+            The configured `PipelineTask`.
+        """
+        task = await super().create_pipeline_task()
 
         self._flow_manager = FlowManager(
             task=task,
             llm=self._llm,
-            context_aggregator=self.build_context_aggregator(),
             context_strategy=self._context_strategy,
             global_functions=self._build_global_functions(),
         )
         self._flow_manager.register_action("end_conversation", self._handle_end_conversation)
+
         return task
 
     async def _handle_end_conversation(self, action: dict) -> None:
