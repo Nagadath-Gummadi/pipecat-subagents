@@ -20,10 +20,11 @@ Requirements:
 import os
 
 from dotenv import load_dotenv
+from loguru import logger
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.frames.frames import LLMMessagesAppendFrame
 from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.task import PipelineParams, PipelineTask
+from pipecat.pipeline.task import PipelineTask
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
@@ -62,14 +63,16 @@ class SimpleAgent(BaseAgent):
         super().__init__(name, bus=bus)
         self._transport = transport
 
-    async def setup(self):
-        @self._transport.event_handler("on_client_connected")
-        async def on_client_connected(transport, client):
-            await self.activate_agent(self.name)
-
-        @self._transport.event_handler("on_client_disconnected")
-        async def on_client_disconnected(transport, client):
-            await self.end()
+    async def on_agent_activated(self, args):
+        await super().on_agent_activated(args)
+        await self.queue_frame(
+            LLMMessagesAppendFrame(
+                messages=[
+                    {"role": "system", "content": "Greet the user and ask how you can help."}
+                ],
+                run_llm=True,
+            )
+        )
 
     def build_pipeline_task(self, pipeline: Pipeline) -> PipelineTask:
         return PipelineTask(pipeline, enable_rtvi=True)
@@ -80,20 +83,31 @@ class SimpleAgent(BaseAgent):
             api_key=os.getenv("CARTESIA_API_KEY"),
             voice_id="9626c31c-bec5-4cca-baa8-f8ba9e84c8bc",  # Jacqueline
         )
-        llm = OpenAILLMService(api_key=os.getenv("OPENAI_API_KEY"))
+        llm = OpenAILLMService(
+            api_key=os.getenv("OPENAI_API_KEY"),
+            system_instruction=(
+                "You are a helpful LLM in a WebRTC call. Your goal is to demonstrate "
+                "your capabilities in a succinct way. Your output will be spoken aloud, "
+                "so avoid special characters that can't easily be spoken, such as emojis "
+                "or bullet points. Respond to what the user said in a creative and helpful way."
+            ),
+        )
 
-        messages = [
-            {
-                "role": "system",
-                "content": "You are a helpful LLM in a WebRTC call. Your goal is to demonstrate your capabilities in a succinct way. Your output will be spoken aloud, so avoid special characters that can't easily be spoken, such as emojis or bullet points. Respond to what the user said in a creative and helpful way.",
-            },
-        ]
-
-        context = LLMContext(messages)
+        context = LLMContext()
         context_aggregator = LLMContextAggregatorPair(
             context,
             user_params=LLMUserAggregatorParams(vad_analyzer=SileroVADAnalyzer()),
         )
+
+        @self._transport.event_handler("on_client_connected")
+        async def on_client_connected(transport, client):
+            logger.info("Client connected")
+            await self.activate_agent(self.name)
+
+        @self._transport.event_handler("on_client_disconnected")
+        async def on_client_disconnected(transport, client):
+            logger.info("Client disconnected")
+            await self.end()
 
         return Pipeline(
             [
@@ -110,20 +124,7 @@ class SimpleAgent(BaseAgent):
 
 async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     runner = AgentRunner(handle_sigint=runner_args.handle_sigint)
-
     agent = SimpleAgent("assistant", bus=runner.bus, transport=transport)
-
-    @agent.event_handler("on_agent_activated")
-    async def on_agent_activated(agent, args):
-        await agent.queue_frame(
-            LLMMessagesAppendFrame(
-                messages=[
-                    {"role": "system", "content": "Greet the user and ask how you can help."}
-                ],
-                run_llm=True,
-            )
-        )
-
     await runner.add_agent(agent)
     await runner.run()
 

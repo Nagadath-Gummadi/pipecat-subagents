@@ -22,6 +22,7 @@ Requirements:
 """
 
 import os
+from typing import Optional
 
 from dotenv import load_dotenv
 from loguru import logger
@@ -144,37 +145,33 @@ class AcmeAgent(BaseAgent):
     """
 
     def __init__(self, name: str, *, bus: AgentBus, transport: BaseTransport):
-        super().__init__(name, bus=bus, active=True)
+        super().__init__(name, bus=bus)
         self._transport = transport
 
-    async def setup(self):
+    async def on_agent_started(self) -> None:
+        await super().on_agent_started()
+
         greeter = GreeterAgent("greeter", bus=self.bus)
         support = SupportAgent("support", bus=self.bus)
         for agent in [greeter, support]:
             await self.add_agent(agent)
 
-        @self._transport.event_handler("on_client_connected")
-        async def on_client_connected(transport, client):
-            logger.info("Client connected")
-            await self.activate_agent(
-                "greeter",
-                args=AgentActivationArgs(
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": (
-                                "Welcome the user to Acme Corp, mention the available products "
-                                "and ask how you can help."
-                            ),
-                        },
-                    ],
-                ),
-            )
-
-        @self._transport.event_handler("on_client_disconnected")
-        async def on_client_disconnected(transport, client):
-            logger.info("Client disconnected")
-            await self.cancel()
+    async def on_agent_activated(self, args: Optional[AgentActivationArgs]) -> None:
+        await super().on_agent_activated(args)
+        await self.activate_agent(
+            "greeter",
+            args=AgentActivationArgs(
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "Welcome the user to Acme Corp, mention the available products "
+                            "and ask how you can help."
+                        ),
+                    },
+                ],
+            ),
+        )
 
     def build_pipeline_task(self, pipeline: Pipeline) -> PipelineTask:
         return PipelineTask(pipeline, enable_rtvi=True)
@@ -197,6 +194,16 @@ class AcmeAgent(BaseAgent):
             agent_name=self.name,
             name=f"{self.name}::BusBridge",
         )
+
+        @self._transport.event_handler("on_client_connected")
+        async def on_client_connected(transport, client):
+            logger.info("Client connected")
+            await self.activate_agent(self.name)
+
+        @self._transport.event_handler("on_client_disconnected")
+        async def on_client_disconnected(transport, client):
+            logger.info("Client disconnected")
+            await self.cancel()
 
         return Pipeline(
             [

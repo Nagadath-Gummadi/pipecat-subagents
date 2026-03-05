@@ -21,6 +21,7 @@ Requirements:
 
 import asyncio
 import os
+from typing import Optional
 
 from dotenv import load_dotenv
 from loguru import logger
@@ -255,46 +256,35 @@ class RestaurantAgent(BaseAgent):
     """Owns the transport pipeline and routes frames to/from the bus."""
 
     def __init__(self, name: str, *, bus: AgentBus, transport: BaseTransport):
-        super().__init__(name, bus=bus, active=True)
+        super().__init__(name, bus=bus)
         self._transport = transport
 
-    async def setup(self):
-        context = LLMContext()
-        context_aggregator = LLMContextAggregatorPair(
-            context,
-            user_params=LLMUserAggregatorParams(vad_analyzer=SileroVADAnalyzer()),
-        )
-        self._context_aggregator = context_aggregator
+    async def on_agent_started(self) -> None:
+        await super().on_agent_started()
 
         router = RouterAgent("router", bus=self.bus)
         reservation = ReservationAgent(
             "reservation",
             bus=self.bus,
-            context_aggregator=context_aggregator,
+            context_aggregator=self._context_aggregator,
             reservation_system=MockReservationSystem(),
         )
         for agent in [router, reservation]:
             await self.add_agent(agent)
 
-        @self._transport.event_handler("on_client_connected")
-        async def on_client_connected(transport, client):
-            logger.info("Client connected")
-            await self.activate_agent(
-                "router",
-                args=AgentActivationArgs(
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": "Greet the user and ask how you can help.",
-                        }
-                    ],
-                ),
-            )
-
-        @self._transport.event_handler("on_client_disconnected")
-        async def on_client_disconnected(transport, client):
-            logger.info("Client disconnected")
-            await self.cancel()
+    async def on_agent_activated(self, args: Optional[AgentActivationArgs]) -> None:
+        await super().on_agent_activated(args)
+        await self.activate_agent(
+            "router",
+            args=AgentActivationArgs(
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "Greet the user and ask how you can help.",
+                    }
+                ],
+            ),
+        )
 
     def build_pipeline_task(self, pipeline: Pipeline) -> PipelineTask:
         return PipelineTask(pipeline, enable_rtvi=True)
@@ -306,11 +296,27 @@ class RestaurantAgent(BaseAgent):
             voice_id="9626c31c-bec5-4cca-baa8-f8ba9e84c8bc",  # Jacqueline
         )
 
+        context = LLMContext()
+        self._context_aggregator = LLMContextAggregatorPair(
+            context,
+            user_params=LLMUserAggregatorParams(vad_analyzer=SileroVADAnalyzer()),
+        )
+
         bridge = BusBridgeProcessor(
             bus=self.bus,
             agent_name=self.name,
             name=f"{self.name}::BusBridge",
         )
+
+        @self._transport.event_handler("on_client_connected")
+        async def on_client_connected(transport, client):
+            logger.info("Client connected")
+            await self.activate_agent(self.name)
+
+        @self._transport.event_handler("on_client_disconnected")
+        async def on_client_disconnected(transport, client):
+            logger.info("Client disconnected")
+            await self.cancel()
 
         return Pipeline(
             [
