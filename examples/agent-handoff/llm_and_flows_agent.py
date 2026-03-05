@@ -25,9 +25,9 @@ import os
 from dotenv import load_dotenv
 from loguru import logger
 from pipecat.audio.vad.silero import SileroVADAnalyzer
-from pipecat.frames.frames import LLMContextFrame, LLMMessagesAppendFrame
+from pipecat.frames.frames import LLMMessagesAppendFrame
 from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.task import PipelineParams, PipelineTask
+from pipecat.pipeline.task import PipelineTask
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
@@ -43,13 +43,8 @@ from pipecat.transports.base_transport import BaseTransport, TransportParams
 from pipecat.transports.daily.transport import DailyParams
 from pipecat_flows import FlowManager, FlowResult, NodeConfig
 
-from pipecat_agents.agents import BaseAgent, FlowsContextAgent, LLMContextAgent, tool
-from pipecat_agents.bus import (
-    AgentActivationArgs,
-    AgentBus,
-    BusInputProcessor,
-    BusOutputProcessor,
-)
+from pipecat_agents.agents import BaseAgent, FlowsAgent, LLMAgent, tool
+from pipecat_agents.bus import AgentActivationArgs, AgentBus, BusBridgeProcessor
 from pipecat_agents.runner import AgentRunner
 
 load_dotenv(override=True)
@@ -81,15 +76,12 @@ class MockReservationSystem:
         return is_available, alternatives
 
 
-class ReservationAgent(FlowsContextAgent):
+class ReservationAgent(FlowsAgent):
     """Structured reservation flow using Pipecat Flows."""
 
     def __init__(self, name: str, *, bus: AgentBus, reservation_system):
+        super().__init__(name, bus=bus)
         self._reservation_system = reservation_system
-        super().__init__(
-            name,
-            bus=bus,
-        )
 
     def build_llm(self) -> LLMService:
         return OpenAILLMService(api_key=os.getenv("OPENAI_API_KEY"))
@@ -213,30 +205,21 @@ class ReservationAgent(FlowsContextAgent):
         return {"status": "success"}, self.build_initial_node()
 
 
-class RouterAgent(LLMContextAgent):
+class RouterAgent(LLMAgent):
     """Routes the user to the reservation agent or answers general questions."""
 
-    def __init__(self, name: str, *, bus: AgentBus):
-        super().__init__(
-            name,
-            bus=bus,
-            system_messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a friendly assistant for La Maison restaurant. You can help "
-                        "with general questions about the restaurant. When the user wants to "
-                        "make a reservation, call the transfer_to_agent tool with agent "
-                        "'reservation'. If the user says goodbye, call the end_conversation "
-                        "tool. Do not mention transferring — just do it seamlessly. "
-                        "Keep responses brief — this is a voice conversation."
-                    ),
-                }
-            ],
-        )
-
     def build_llm(self) -> LLMService:
-        return OpenAILLMService(api_key=os.getenv("OPENAI_API_KEY"))
+        return OpenAILLMService(
+            api_key=os.getenv("OPENAI_API_KEY"),
+            system_instruction=(
+                "You are a friendly assistant for La Maison restaurant. You can help "
+                "with general questions about the restaurant. When the user wants to "
+                "make a reservation, call the transfer_to_agent tool with agent "
+                "'reservation'. If the user says goodbye, call the end_conversation "
+                "tool. Do not mention transferring — just do it seamlessly. "
+                "Keep responses brief — this is a voice conversation."
+            ),
+        )
 
     @tool(cancel_on_interruption=False)
     async def transfer_to_agent(self, params: FunctionCallParams, agent: str, reason: str):
@@ -276,32 +259,7 @@ class RestaurantAgent(BaseAgent):
         super().__init__(name, bus=bus, active=True)
         self._transport = transport
 
-    async def build_pipeline_task(self) -> PipelineTask:
-        stt = DeepgramSTTService(api_key=os.getenv("DEEPGRAM_API_KEY"))
-        tts = CartesiaTTSService(
-            api_key=os.getenv("CARTESIA_API_KEY"),
-            voice_id="9626c31c-bec5-4cca-baa8-f8ba9e84c8bc",  # Jacqueline
-        )
-
-        context = LLMContext()
-        context_aggregator = LLMContextAggregatorPair(
-            context,
-            user_params=LLMUserAggregatorParams(vad_analyzer=SileroVADAnalyzer()),
-        )
-
-        bus_output = BusOutputProcessor(
-            bus=self.bus,
-            agent_name=self.name,
-            name=f"{self.name}::BusOutput",
-            output_frames=(LLMContextFrame,),
-        )
-        bus_input = BusInputProcessor(
-            bus=self.bus,
-            agent_name=self.name,
-            name=f"{self.name}::BusInput",
-        )
-
-        # Create sub-agents
+    async def setup(self):
         router = RouterAgent("router", bus=self.bus)
         reservation = ReservationAgent(
             "reservation",
@@ -311,7 +269,6 @@ class RestaurantAgent(BaseAgent):
         for agent in [router, reservation]:
             await self.add_agent(agent)
 
-        # Wire transport events
         @self._transport.event_handler("on_client_connected")
         async def on_client_connected(transport, client):
             logger.info("Client connected")
@@ -332,20 +289,39 @@ class RestaurantAgent(BaseAgent):
             logger.info("Client disconnected")
             await self.cancel()
 
-        pipeline = Pipeline(
+    def build_pipeline_task(self, pipeline: Pipeline) -> PipelineTask:
+        return PipelineTask(pipeline, enable_rtvi=True)
+
+    async def build_pipeline(self) -> Pipeline:
+        stt = DeepgramSTTService(api_key=os.getenv("DEEPGRAM_API_KEY"))
+        tts = CartesiaTTSService(
+            api_key=os.getenv("CARTESIA_API_KEY"),
+            voice_id="9626c31c-bec5-4cca-baa8-f8ba9e84c8bc",  # Jacqueline
+        )
+
+        context = LLMContext()
+        context_aggregator = LLMContextAggregatorPair(
+            context,
+            user_params=LLMUserAggregatorParams(vad_analyzer=SileroVADAnalyzer()),
+        )
+
+        bridge = BusBridgeProcessor(
+            bus=self.bus,
+            agent_name=self.name,
+            name=f"{self.name}::BusBridge",
+        )
+
+        return Pipeline(
             [
                 self._transport.input(),
                 stt,
                 context_aggregator.user(),
-                bus_output,
-                bus_input,
+                bridge,
                 tts,
                 self._transport.output(),
                 context_aggregator.assistant(),
             ]
         )
-
-        return PipelineTask(pipeline, params=PipelineParams(allow_interruptions=True))
 
 
 async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):

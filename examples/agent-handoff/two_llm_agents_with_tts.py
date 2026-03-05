@@ -14,14 +14,11 @@ before handing off.
 Architecture:
 
     Main agent (no TTS):
-      transport.in → STT → context_agg.user → BusOutput(LLMContextFrame)
-        → BusInput → transport.out → context_agg.assistant
+      transport.in → STT → context_agg.user → BusBridge → transport.out
+        → context_agg.assistant
 
     LLM agent (with TTS):
-      BusInput → ContextProcessor → LLM → Parallel(
-        [TTS → BusOutput(text + audio)],
-        [AssistantAgg],
-      )
+      BusInput → LLM → TTS → BusOutput
 
 Requirements:
 - OPENAI_API_KEY
@@ -35,9 +32,9 @@ import os
 from dotenv import load_dotenv
 from loguru import logger
 from pipecat.audio.vad.silero import SileroVADAnalyzer
-from pipecat.frames.frames import LLMContextFrame, LLMMessagesAppendFrame
+from pipecat.frames.frames import LLMMessagesAppendFrame
 from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.task import PipelineParams, PipelineTask
+from pipecat.pipeline.task import PipelineTask
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
@@ -49,17 +46,11 @@ from pipecat.services.cartesia.tts import CartesiaTTSService
 from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.services.llm_service import FunctionCallParams, LLMService
 from pipecat.services.openai.llm import OpenAILLMService
-from pipecat.services.tts_service import TTSService
 from pipecat.transports.base_transport import BaseTransport, TransportParams
 from pipecat.transports.daily.transport import DailyParams
 
-from pipecat_agents.agents import BaseAgent, LLMContextAgent, tool
-from pipecat_agents.bus import (
-    AgentActivationArgs,
-    AgentBus,
-    BusInputProcessor,
-    BusOutputProcessor,
-)
+from pipecat_agents.agents import BaseAgent, LLMAgent, tool
+from pipecat_agents.bus import AgentActivationArgs, AgentBus, BusBridgeProcessor
 from pipecat_agents.runner import AgentRunner
 
 load_dotenv(override=True)
@@ -76,21 +67,20 @@ transport_params = {
 }
 
 
-class AcmeTTSAgent(LLMContextAgent):
+class AcmeTTSAgent(LLMAgent):
     """Base agent for Acme Corp with per-agent TTS voice."""
 
-    def __init__(self, name: str, *, bus: AgentBus, system_messages: list, voice_id: str):
-        super().__init__(name, bus=bus, system_messages=system_messages)
+    def __init__(self, name: str, *, bus: AgentBus, voice_id: str):
+        super().__init__(name, bus=bus)
         self._voice_id = voice_id
 
-    def build_llm(self) -> LLMService:
-        return OpenAILLMService(api_key=os.getenv("OPENAI_API_KEY"))
-
-    def build_tts(self) -> TTSService:
-        return CartesiaTTSService(
+    async def build_pipeline(self) -> Pipeline:
+        pipeline = await super().build_pipeline()
+        tts = CartesiaTTSService(
             api_key=os.getenv("CARTESIA_API_KEY"),
             voice_id=self._voice_id,
         )
+        return Pipeline([pipeline, tts])
 
     @tool(cancel_on_interruption=False)
     async def transfer_to_agent(self, params: FunctionCallParams, agent: str, reason: str):
@@ -139,21 +129,21 @@ class GreeterAgent(AcmeTTSAgent):
             name,
             bus=bus,
             voice_id="9626c31c-bec5-4cca-baa8-f8ba9e84c8bc",  # Jacqueline
-            system_messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a friendly greeter for Acme Corp. The available products "
-                        "are: the Acme Rocket Boots, the Acme Invisible Paint, and the Acme "
-                        "Tornado Kit. Ask which one they'd like to learn more about. "
-                        "When the user picks a product or asks a question about one, "
-                        "call the transfer_to_agent tool with agent 'support'. "
-                        "Do not answer product questions yourself. If the user says goodbye, "
-                        "call the end_conversation tool. "
-                        "Keep responses brief — this is a voice conversation."
-                    ),
-                }
-            ],
+        )
+
+    def build_llm(self) -> LLMService:
+        return OpenAILLMService(
+            api_key=os.getenv("OPENAI_API_KEY"),
+            system_instruction=(
+                "You are a friendly greeter for Acme Corp. The available products "
+                "are: the Acme Rocket Boots, the Acme Invisible Paint, and the Acme "
+                "Tornado Kit. Ask which one they'd like to learn more about. "
+                "When the user picks a product or asks a question about one, "
+                "call the transfer_to_agent tool with agent 'support'. "
+                "Do not answer product questions yourself. If the user says goodbye, "
+                "call the end_conversation tool. "
+                "Keep responses brief — this is a voice conversation."
+            ),
         )
 
 
@@ -165,23 +155,23 @@ class SupportAgent(AcmeTTSAgent):
             name,
             bus=bus,
             voice_id="a167e0f3-df7e-4d52-a9c3-f949145efdab",  # Blake
-            system_messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a support agent for Acme Corp. You know about three "
-                        "products: Acme Rocket Boots (jet-powered boots, $299, run up "
-                        "to 60 mph), Acme Invisible Paint (makes anything invisible for "
-                        "24 hours, $49 per can), and Acme Tornado Kit (portable tornado "
-                        "generator, $199, batteries included). Answer the user's questions "
-                        "about these products. If the user wants to browse other products "
-                        "or start over, call the transfer_to_agent tool with agent "
-                        "'greeter'. "
-                        "If the user says goodbye, call the end_conversation tool. "
-                        "Keep responses brief — this is a voice conversation."
-                    ),
-                }
-            ],
+        )
+
+    def build_llm(self) -> LLMService:
+        return OpenAILLMService(
+            api_key=os.getenv("OPENAI_API_KEY"),
+            system_instruction=(
+                "You are a support agent for Acme Corp. You know about three "
+                "products: Acme Rocket Boots (jet-powered boots, $299, run up "
+                "to 60 mph), Acme Invisible Paint (makes anything invisible for "
+                "24 hours, $49 per can), and Acme Tornado Kit (portable tornado "
+                "generator, $199, batteries included). Answer the user's questions "
+                "about these products. If the user wants to browse other products "
+                "or start over, call the transfer_to_agent tool with agent "
+                "'greeter'. "
+                "If the user says goodbye, call the end_conversation tool. "
+                "Keep responses brief — this is a voice conversation."
+            ),
         )
 
 
@@ -196,48 +186,12 @@ class AcmeAgent(BaseAgent):
         super().__init__(name, bus=bus, active=True)
         self._transport = transport
 
-    async def build_pipeline_task(self) -> PipelineTask:
-        stt = DeepgramSTTService(api_key=os.getenv("DEEPGRAM_API_KEY"))
-
-        context = LLMContext()
-        context_aggregator = LLMContextAggregatorPair(
-            context,
-            user_params=LLMUserAggregatorParams(vad_analyzer=SileroVADAnalyzer()),
-        )
-
-        bus_output = BusOutputProcessor(
-            bus=self.bus,
-            agent_name=self.name,
-            output_frames=(LLMContextFrame,),
-            name=f"{self.name}::BusOutput",
-        )
-        bus_input = BusInputProcessor(
-            bus=self.bus,
-            agent_name=self.name,
-            name=f"{self.name}::BusInput",
-        )
-
-        pipeline = Pipeline(
-            [
-                self._transport.input(),
-                stt,
-                context_aggregator.user(),
-                bus_output,
-                bus_input,
-                self._transport.output(),
-                context_aggregator.assistant(),
-            ]
-        )
-
-        task = PipelineTask(pipeline, params=PipelineParams(allow_interruptions=True))
-
-        # Create sub-agents
+    async def setup(self):
         greeter = GreeterAgent("greeter", bus=self.bus)
         support = SupportAgent("support", bus=self.bus)
         for agent in [greeter, support]:
             await self.add_agent(agent)
 
-        # Wire transport events
         @self._transport.event_handler("on_client_connected")
         async def on_client_connected(transport, client):
             logger.info("Client connected")
@@ -261,7 +215,34 @@ class AcmeAgent(BaseAgent):
             logger.info("Client disconnected")
             await self.cancel()
 
-        return task
+    def build_pipeline_task(self, pipeline: Pipeline) -> PipelineTask:
+        return PipelineTask(pipeline, enable_rtvi=True)
+
+    async def build_pipeline(self) -> Pipeline:
+        stt = DeepgramSTTService(api_key=os.getenv("DEEPGRAM_API_KEY"))
+
+        context = LLMContext()
+        context_aggregator = LLMContextAggregatorPair(
+            context,
+            user_params=LLMUserAggregatorParams(vad_analyzer=SileroVADAnalyzer()),
+        )
+
+        bridge = BusBridgeProcessor(
+            bus=self.bus,
+            agent_name=self.name,
+            name=f"{self.name}::BusBridge",
+        )
+
+        return Pipeline(
+            [
+                self._transport.input(),
+                stt,
+                context_aggregator.user(),
+                bridge,
+                self._transport.output(),
+                context_aggregator.assistant(),
+            ]
+        )
 
 
 async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):

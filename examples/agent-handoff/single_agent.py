@@ -62,7 +62,19 @@ class SimpleAgent(BaseAgent):
         super().__init__(name, bus=bus)
         self._transport = transport
 
-    async def build_pipeline_task(self) -> PipelineTask:
+    async def setup(self):
+        @self._transport.event_handler("on_client_connected")
+        async def on_client_connected(transport, client):
+            await self.activate_agent(self.name)
+
+        @self._transport.event_handler("on_client_disconnected")
+        async def on_client_disconnected(transport, client):
+            await self.end()
+
+    def build_pipeline_task(self, pipeline: Pipeline) -> PipelineTask:
+        return PipelineTask(pipeline, enable_rtvi=True)
+
+    async def build_pipeline(self) -> Pipeline:
         stt = DeepgramSTTService(api_key=os.getenv("DEEPGRAM_API_KEY"))
         tts = CartesiaTTSService(
             api_key=os.getenv("CARTESIA_API_KEY"),
@@ -83,7 +95,7 @@ class SimpleAgent(BaseAgent):
             user_params=LLMUserAggregatorParams(vad_analyzer=SileroVADAnalyzer()),
         )
 
-        pipeline = Pipeline(
+        return Pipeline(
             [
                 self._transport.input(),
                 stt,
@@ -94,18 +106,6 @@ class SimpleAgent(BaseAgent):
                 context_aggregator.assistant(),
             ]
         )
-
-        task = PipelineTask(pipeline, params=PipelineParams(allow_interruptions=True))
-
-        @self._transport.event_handler("on_client_connected")
-        async def on_client_connected(transport, client):
-            await self.activate_agent(self.name)
-
-        @self._transport.event_handler("on_client_disconnected")
-        async def on_client_disconnected(transport, client):
-            await self.end()
-
-        return task
 
 
 async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
