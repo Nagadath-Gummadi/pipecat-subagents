@@ -259,17 +259,6 @@ class BaseAgent(BaseObject, BusSubscriber):
 
         await self._call_event_handler("on_bus_message", message)
 
-    async def setup(self) -> None:
-        """Perform pre-pipeline setup such as adding sub-agents and wiring events.
-
-        Called by ``create_pipeline_task()`` before ``build_pipeline()``.
-        Override in subclasses to add child agents via ``add_agent()``,
-        register transport event handlers, or perform other initialization.
-
-        The default implementation is a no-op.
-        """
-        pass
-
     @abstractmethod
     async def build_pipeline(self) -> Pipeline:
         """Return this agent's pipeline.
@@ -306,13 +295,13 @@ class BaseAgent(BaseObject, BusSubscriber):
     async def create_pipeline_task(self) -> PipelineTask:
         """Create and configure the agent's pipeline task.
 
-        Calls ``setup()``, ``build_pipeline()``, and
-        ``build_pipeline_task()``, then wires lifecycle event handling.
+        Calls ``build_pipeline()``, and ``build_pipeline_task()``, then wires
+        lifecycle event handling.
 
         Returns:
             The configured `PipelineTask`.
+
         """
-        await self.setup()
         user_pipeline = await self.build_pipeline()
 
         # Wrap with edge-to-bus processors when opted in
