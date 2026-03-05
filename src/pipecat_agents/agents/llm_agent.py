@@ -176,6 +176,9 @@ class LLMAgent(BaseAgent):
     ) -> None:
         """Activate another agent without stopping this one.
 
+        When called from a ``@tool`` handler, pass ``params.result_callback`` to
+        ensure any pending LLM output is fully delivered before activating.
+
         Args:
             agent_name: The name of the agent to activate.
             args: Optional `AgentActivationArgs` forwarded to the target agent's
