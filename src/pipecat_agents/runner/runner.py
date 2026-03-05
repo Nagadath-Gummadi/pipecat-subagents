@@ -111,7 +111,7 @@ class AgentRunner(BaseObject, BusSubscriber):
         if agent.name in self._agents:
             raise ValueError(f"Agent '{agent.name}' already exists")
         self._agents[agent.name] = agent
-        logger.debug(f"AgentRunner: added agent '{agent.name}'")
+        logger.debug(f"{self}: added agent '{agent.name}'")
 
         if self._running:
             await self._start_agent_task(agent)
@@ -155,7 +155,7 @@ class AgentRunner(BaseObject, BusSubscriber):
         """
         if self._shutdown_event.is_set():
             return
-        logger.debug(f"AgentRunner: ending gracefully (reason={reason})")
+        logger.debug(f"{self}: ending gracefully (reason={reason})")
         self._shutdown_event.set()
         for name, agent in self._agents.items():
             if agent.parent is None:
@@ -175,7 +175,7 @@ class AgentRunner(BaseObject, BusSubscriber):
         """
         if self._shutdown_event.is_set():
             return
-        logger.debug(f"AgentRunner: cancelling (reason={reason})")
+        logger.debug(f"{self}: cancelling (reason={reason})")
         self._shutdown_event.set()
         for name, agent in self._agents.items():
             if agent.parent is None:
@@ -186,13 +186,24 @@ class AgentRunner(BaseObject, BusSubscriber):
 
     async def _start_agent_task(self, agent: BaseAgent) -> None:
         """Create an agent's pipeline task and start it as a background asyncio task."""
-        pipeline_task = await agent.create_pipeline_task()
+        logger.debug(f"{self}: starting agent '{agent.name}'")
+        try:
+            pipeline_task = await agent.create_pipeline_task()
+        except Exception:
+            logger.exception(f"{self}: failed to create pipeline task for agent '{agent.name}'")
+            return
+
         asyncio_task = asyncio.create_task(
             self._pipecat_runner.run(pipeline_task),
             name=f"agent_{agent.name}",
         )
+
+        # Register the agent task.
         self._running_agent_tasks[agent.name] = asyncio_task
         asyncio_task.add_done_callback(self._on_agent_task_done)
+
+        # Add the task to event loop right away without needing to `await`.
+        await asyncio.sleep(0)
 
     def _on_agent_task_done(self, task: asyncio.Task) -> None:
         """Remove a completed agent task and signal its finished event."""
