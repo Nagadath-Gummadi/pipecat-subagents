@@ -79,15 +79,14 @@ class BusBridgeProcessor(FrameProcessor, BusSubscriber):
         """
         await super().process_frame(frame, direction)
 
-        # Always pass through
-        await self.push_frame(frame, direction)
-
         # Lifecycle frames never cross the bus
         if isinstance(frame, _LIFECYCLE_FRAMES):
+            await self.push_frame(frame, direction)
             return
 
         # Excluded frames never cross the bus
         if self._exclude_frames and isinstance(frame, self._exclude_frames):
+            await self.push_frame(frame, direction)
             return
 
         # Send to bus
