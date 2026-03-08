@@ -43,9 +43,10 @@ from pipecat.processors.aggregators.llm_response_universal import (
 )
 from pipecat.runner.types import RunnerArguments
 from pipecat.runner.utils import create_transport
-from pipecat.services.cartesia.tts import CartesiaTTSService
+from pipecat.services.cartesia.tts import CartesiaTTSService, CartesiaTTSSettings
 from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.services.llm_service import FunctionCallParams, LLMService
+from pipecat.services.openai.base_llm import OpenAILLMSettings
 from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.transports.base_transport import BaseTransport, TransportParams
 from pipecat.transports.daily.transport import DailyParams
@@ -79,7 +80,7 @@ class AcmeTTSAgent(LLMAgent):
         pipeline = await super().build_pipeline()
         tts = CartesiaTTSService(
             api_key=os.getenv("CARTESIA_API_KEY"),
-            voice_id=self._voice_id,
+            settings=CartesiaTTSSettings(voice=self._voice_id),
         )
         return Pipeline([pipeline, tts])
 
@@ -135,15 +136,17 @@ class GreeterAgent(AcmeTTSAgent):
     def build_llm(self) -> LLMService:
         return OpenAILLMService(
             api_key=os.getenv("OPENAI_API_KEY"),
-            system_instruction=(
-                "You are a friendly greeter for Acme Corp. The available products "
-                "are: the Acme Rocket Boots, the Acme Invisible Paint, and the Acme "
-                "Tornado Kit. Ask which one they'd like to learn more about. "
-                "When the user picks a product or asks a question about one, "
-                "call the transfer_to_agent tool with agent 'support'. "
-                "Do not answer product questions yourself. If the user says goodbye, "
-                "call the end_conversation tool. "
-                "Keep responses brief — this is a voice conversation."
+            settings=OpenAILLMSettings(
+                system_instruction=(
+                    "You are a friendly greeter for Acme Corp. The available products "
+                    "are: the Acme Rocket Boots, the Acme Invisible Paint, and the Acme "
+                    "Tornado Kit. Ask which one they'd like to learn more about. "
+                    "When the user picks a product or asks a question about one, "
+                    "call the transfer_to_agent tool with agent 'support'. "
+                    "Do not answer product questions yourself. If the user says goodbye, "
+                    "call the end_conversation tool. "
+                    "Keep responses brief — this is a voice conversation."
+                )
             ),
         )
 
@@ -161,17 +164,19 @@ class SupportAgent(AcmeTTSAgent):
     def build_llm(self) -> LLMService:
         return OpenAILLMService(
             api_key=os.getenv("OPENAI_API_KEY"),
-            system_instruction=(
-                "You are a support agent for Acme Corp. You know about three "
-                "products: Acme Rocket Boots (jet-powered boots, $299, run up "
-                "to 60 mph), Acme Invisible Paint (makes anything invisible for "
-                "24 hours, $49 per can), and Acme Tornado Kit (portable tornado "
-                "generator, $199, batteries included). Answer the user's questions "
-                "about these products. If the user wants to browse other products "
-                "or start over, call the transfer_to_agent tool with agent "
-                "'greeter'. "
-                "If the user says goodbye, call the end_conversation tool. "
-                "Keep responses brief — this is a voice conversation."
+            settings=OpenAILLMSettings(
+                system_instruction=(
+                    "You are a support agent for Acme Corp. You know about three "
+                    "products: Acme Rocket Boots (jet-powered boots, $299, run up "
+                    "to 60 mph), Acme Invisible Paint (makes anything invisible for "
+                    "24 hours, $49 per can), and Acme Tornado Kit (portable tornado "
+                    "generator, $199, batteries included). Answer the user's questions "
+                    "about these products. If the user wants to browse other products "
+                    "or start over, call the transfer_to_agent tool with agent "
+                    "'greeter'. "
+                    "If the user says goodbye, call the end_conversation tool. "
+                    "Keep responses brief — this is a voice conversation."
+                ),
             ),
         )
 

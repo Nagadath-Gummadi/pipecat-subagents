@@ -36,9 +36,10 @@ from pipecat.processors.aggregators.llm_response_universal import (
 )
 from pipecat.runner.types import RunnerArguments
 from pipecat.runner.utils import create_transport
-from pipecat.services.cartesia.tts import CartesiaTTSService
+from pipecat.services.cartesia.tts import CartesiaTTSService, CartesiaTTSSettings
 from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.services.llm_service import FunctionCallParams, LLMService
+from pipecat.services.openai.base_llm import OpenAILLMSettings
 from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.transports.base_transport import BaseTransport, TransportParams
 from pipecat.transports.daily.transport import DailyParams
@@ -87,9 +88,11 @@ class ReservationAgent(FlowsAgent):
     def build_llm(self) -> LLMService:
         return OpenAILLMService(
             api_key=os.getenv("OPENAI_API_KEY"),
-            system_instruction=(
-                "You are a reservation assistant for La Maison, an upscale French "
-                "restaurant. Be casual and friendly. This is a voice conversation."
+            settings=OpenAILLMSettings(
+                system_instruction=(
+                    "You are a reservation assistant for La Maison, an upscale French "
+                    "restaurant. Be casual and friendly. This is a voice conversation."
+                ),
             ),
         )
 
@@ -210,13 +213,15 @@ class RouterAgent(LLMAgent):
     def build_llm(self) -> LLMService:
         return OpenAILLMService(
             api_key=os.getenv("OPENAI_API_KEY"),
-            system_instruction=(
-                "You are a friendly assistant for La Maison restaurant. You can help "
-                "with general questions about the restaurant. When the user wants to "
-                "make a reservation, call the transfer_to_agent tool with agent "
-                "'reservation'. If the user says goodbye, call the end_conversation "
-                "tool. Do not mention transferring — just do it seamlessly. "
-                "Keep responses brief — this is a voice conversation."
+            settings=OpenAILLMSettings(
+                system_instruction=(
+                    "You are a friendly assistant for La Maison restaurant. You can help "
+                    "with general questions about the restaurant. When the user wants to "
+                    "make a reservation, call the transfer_to_agent tool with agent "
+                    "'reservation'. If the user says goodbye, call the end_conversation "
+                    "tool. Do not mention transferring — just do it seamlessly. "
+                    "Keep responses brief — this is a voice conversation."
+                ),
             ),
         )
 
@@ -292,7 +297,9 @@ class RestaurantAgent(BaseAgent):
         stt = DeepgramSTTService(api_key=os.getenv("DEEPGRAM_API_KEY"))
         tts = CartesiaTTSService(
             api_key=os.getenv("CARTESIA_API_KEY"),
-            voice_id="9626c31c-bec5-4cca-baa8-f8ba9e84c8bc",  # Jacqueline
+            settings=CartesiaTTSSettings(
+                voice="9626c31c-bec5-4cca-baa8-f8ba9e84c8bc",  # Jacqueline
+            ),
         )
 
         context = LLMContext()
