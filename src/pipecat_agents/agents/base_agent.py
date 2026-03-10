@@ -675,7 +675,10 @@ class BaseAgent(BaseObject, BusSubscriber):
         return task_id
 
     async def _task_timeout(self, task_id: str, timeout: float) -> None:
-        await asyncio.sleep(timeout)
+        try:
+            await asyncio.sleep(timeout)
+        except asyncio.CancelledError:
+            return
         await self.cancel_task(task_id, reason="timeout")
 
     async def cancel_task(self, task_id: str, *, reason: Optional[str] = None) -> None:
