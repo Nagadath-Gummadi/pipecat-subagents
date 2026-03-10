@@ -688,7 +688,7 @@ class BaseAgent(BaseObject, BusSubscriber):
             task_id: The task identifier to cancel.
             reason: Optional human-readable reason for cancellation.
         """
-        group = self._task_groups.get(task_id)
+        group = self._task_groups.pop(task_id, None)
         if group:
             if group.timeout_task:
                 group.timeout_task.cancel()
@@ -900,6 +900,7 @@ class BaseAgent(BaseObject, BusSubscriber):
             if group.responses.keys() >= group.agent_names:
                 if group.timeout_task:
                     group.timeout_task.cancel()
+                del self._task_groups[message.task_id]
                 await self.on_task_completed(message.task_id, group.responses)
                 await self._call_event_handler(
                     "on_task_completed", message.task_id, group.responses
@@ -949,6 +950,7 @@ class BaseAgent(BaseObject, BusSubscriber):
             if group.responses.keys() >= group.agent_names:
                 if group.timeout_task:
                     group.timeout_task.cancel()
+                del self._task_groups[message.task_id]
                 await self.on_task_completed(message.task_id, group.responses)
                 await self._call_event_handler(
                     "on_task_completed", message.task_id, group.responses
