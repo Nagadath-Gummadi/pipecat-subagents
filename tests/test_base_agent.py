@@ -897,5 +897,59 @@ class TestTaskLifecycle(unittest.IsolatedAsyncioTestCase):
             await agent.send_task_stream_end()
 
 
+    async def test_start_task_timeout_cancels_task(self):
+        """Short timeout triggers BusTaskCancelMessage with reason 'timeout'."""
+        bus = LocalAgentBus()
+        sent = capture_bus(bus)
+
+        parent = StubAgent("parent", bus=bus)
+        worker = StubAgent("worker", bus=bus)
+
+        task_id = await parent.start_task(worker, timeout=0.05)
+
+        # Wait for timeout to fire
+        await asyncio.sleep(0.1)
+
+        cancel_msgs = [m for m in sent if isinstance(m, BusTaskCancelMessage)]
+        self.assertEqual(len(cancel_msgs), 1)
+        self.assertEqual(cancel_msgs[0].task_id, task_id)
+        self.assertEqual(cancel_msgs[0].reason, "timeout")
+
+    async def test_start_task_timeout_cancelled_on_completion(self):
+        """Responding before timeout prevents cancel from being sent."""
+        bus = LocalAgentBus()
+        sent = capture_bus(bus)
+
+        parent = StubAgent("parent", bus=bus)
+        worker = StubAgent("worker", bus=bus)
+
+        task_id = await parent.start_task(worker, timeout=0.5)
+
+        # Respond immediately
+        await parent.on_bus_message(
+            BusTaskResponseMessage(
+                source="worker", target="parent", task_id=task_id, response={"ok": True}
+            )
+        )
+
+        # Wait past what would have been the timeout
+        await asyncio.sleep(0.1)
+
+        cancel_msgs = [m for m in sent if isinstance(m, BusTaskCancelMessage)]
+        self.assertEqual(len(cancel_msgs), 0)
+
+    async def test_start_task_no_timeout_by_default(self):
+        """timeout_task is None when no timeout is given."""
+        bus = LocalAgentBus()
+
+        parent = StubAgent("parent", bus=bus)
+        worker = StubAgent("worker", bus=bus)
+
+        task_id = await parent.start_task(worker)
+
+        group = parent._task_groups[task_id]
+        self.assertIsNone(group.timeout_task)
+
+
 if __name__ == "__main__":
     unittest.main()

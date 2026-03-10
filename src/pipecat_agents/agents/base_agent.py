@@ -163,6 +163,7 @@ class TaskGroup:
     task_id: str
     agent_names: set[str]
     responses: dict[str, dict] = field(default_factory=dict)
+    timeout_task: Optional[asyncio.Task] = None
 
 
 class BaseAgent(BaseObject, BusSubscriber):
@@ -620,6 +621,7 @@ class BaseAgent(BaseObject, BusSubscriber):
         *agents: "BaseAgent",
         args: Optional[dict] = None,
         payload: Optional[dict] = None,
+        timeout: Optional[float] = None,
     ) -> str:
         """Launch one or more task agents with a shared task_id.
 
@@ -633,6 +635,9 @@ class BaseAgent(BaseObject, BusSubscriber):
                 ``on_agent_activated``.
             payload: Optional structured data describing the work, forwarded
                 via ``BusTaskRequestMessage``.
+            timeout: Optional timeout in seconds. If set, the task is
+                automatically cancelled after this duration.
+
         Returns:
             The generated task_id shared by all agents in the group.
         """
@@ -649,7 +654,14 @@ class BaseAgent(BaseObject, BusSubscriber):
                 )
             )
 
+        if timeout is not None:
+            group.timeout_task = asyncio.create_task(self._task_timeout(task_id, timeout))
+
         return task_id
+
+    async def _task_timeout(self, task_id: str, timeout: float) -> None:
+        await asyncio.sleep(timeout)
+        await self.cancel_task(task_id, reason="timeout")
 
     async def cancel_task(self, task_id: str, *, reason: Optional[str] = None) -> None:
         """Cancel a running task group.
@@ -660,6 +672,8 @@ class BaseAgent(BaseObject, BusSubscriber):
         """
         group = self._task_groups.get(task_id)
         if group:
+            if group.timeout_task:
+                group.timeout_task.cancel()
             for agent_name in group.agent_names:
                 await self.send_message(
                     BusTaskCancelMessage(
@@ -866,6 +880,8 @@ class BaseAgent(BaseObject, BusSubscriber):
         if group:
             group.responses[message.source] = message.response or {}
             if group.responses.keys() >= group.agent_names:
+                if group.timeout_task:
+                    group.timeout_task.cancel()
                 await self.on_task_completed(message.task_id, group.responses)
                 await self._call_event_handler(
                     "on_task_completed", message.task_id, group.responses
@@ -909,6 +925,8 @@ class BaseAgent(BaseObject, BusSubscriber):
         if group:
             group.responses[message.source] = message.data or {}
             if group.responses.keys() >= group.agent_names:
+                if group.timeout_task:
+                    group.timeout_task.cancel()
                 await self.on_task_completed(message.task_id, group.responses)
                 await self._call_event_handler(
                     "on_task_completed", message.task_id, group.responses
