@@ -196,6 +196,8 @@ class BaseAgent(BaseObject, BusSubscriber):
       streaming chunk from a task agent.
     - ``on_task_stream_end(task_id, agent_name, data)``: Called when a task
       agent finishes streaming.
+    - ``on_task_cancelled(task_id, reason)``: Called when this agent's task
+      is cancelled by the requester.
     - ``on_bus_message(message)``: Called for bus messages after default
       lifecycle handling.
 
@@ -211,6 +213,7 @@ class BaseAgent(BaseObject, BusSubscriber):
     - on_task_stream_start(agent, task_id, agent_name, data)
     - on_task_stream_data(agent, task_id, agent_name, data)
     - on_task_stream_end(agent, task_id, agent_name, data)
+    - on_task_cancelled(agent, task_id, reason)
     - on_bus_message(agent, message)
 
     Example::
@@ -275,6 +278,7 @@ class BaseAgent(BaseObject, BusSubscriber):
         self._register_event_handler("on_task_stream_start")
         self._register_event_handler("on_task_stream_data")
         self._register_event_handler("on_task_stream_end")
+        self._register_event_handler("on_task_cancelled")
 
     @property
     def bus(self) -> AgentBus:
@@ -418,6 +422,17 @@ class BaseAgent(BaseObject, BusSubscriber):
             task_id: The task identifier.
             agent_name: The name of the streaming agent.
             data: Optional final metadata.
+        """
+        pass
+
+    async def on_task_cancelled(self, task_id: str, reason: Optional[str]) -> None:
+        """Called when this agent's task is cancelled by the requester.
+
+        Override to clean up resources or stop in-progress work.
+
+        Args:
+            task_id: The task identifier.
+            reason: Optional human-readable reason for cancellation.
         """
         pass
 
@@ -899,6 +914,10 @@ class BaseAgent(BaseObject, BusSubscriber):
         if self._task_id == message.task_id:
             self._task_id = None
             self._task_requester = None
+            await self.on_task_cancelled(message.task_id, message.reason)
+            await self._call_event_handler(
+                "on_task_cancelled", message.task_id, message.reason
+            )
 
     async def _handle_task_stream_start(self, message: BusTaskStreamStartMessage) -> None:
         """Handle the start of a streaming task response."""

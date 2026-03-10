@@ -792,6 +792,30 @@ class TestTaskLifecycle(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIsNone(agent.task_id)
 
+    async def test_on_task_cancelled_fires(self):
+        """BusTaskCancelMessage triggers on_task_cancelled with correct args."""
+        bus = LocalAgentBus()
+        agent = StubAgent("worker", bus=bus)
+
+        received = []
+
+        @agent.event_handler("on_task_cancelled")
+        async def on_cancelled(agent, task_id, reason):
+            received.append((task_id, reason))
+
+        await agent.on_bus_message(
+            BusTaskRequestMessage(source="parent", target="worker", task_id="t1")
+        )
+        await agent.on_bus_message(
+            BusTaskCancelMessage(
+                source="parent", target="worker", task_id="t1", reason="no longer needed"
+            )
+        )
+        await asyncio.sleep(0)
+
+        self.assertEqual(len(received), 1)
+        self.assertEqual(received[0], ("t1", "no longer needed"))
+
     async def test_send_task_stream_start(self):
         """send_task_stream_start() sends BusTaskStreamStartMessage to requester."""
         bus = LocalAgentBus()
