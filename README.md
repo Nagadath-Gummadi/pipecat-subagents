@@ -1,65 +1,109 @@
 <h1><div align="center">
- <img alt="pipecat agents" width="500px" height="auto" src="https://github.com/pipecat-ai/pipecat-agents/raw/refs/heads/main/pipecat-agents.png">
+ <img alt="pipecat subagents" width="500px" height="auto" src="https://github.com/pipecat-ai/pipecat-subagents/raw/refs/heads/main/pipecat-subagents.png">
 </div></h1>
 
-[![PyPI](https://img.shields.io/pypi/v/pipecat-ai-agents)](https://pypi.org/project/pipecat-ai-agents) ![Tests](https://github.com/pipecat-ai/pipecat-agents/actions/workflows/tests.yaml/badge.svg) [![codecov](https://codecov.io/gh/pipecat-ai/pipecat-agents/graph/badge.svg?token=LNVUIVO4Y9)](https://codecov.io/gh/pipecat-ai/pipecat-agents) [![Docs](https://img.shields.io/badge/Documentation-blue)](https://docs.pipecat.ai/guides/features/pipecat-agents) [![Discord](https://img.shields.io/discord/1239284677165056021)](https://discord.gg/pipecat)
+[![PyPI](https://img.shields.io/pypi/v/pipecat-ai-subagents)](https://pypi.org/project/pipecat-ai-subagents) ![Tests](https://github.com/pipecat-ai/pipecat-subagents/actions/workflows/tests.yaml/badge.svg) [![codecov](https://codecov.io/gh/pipecat-ai/pipecat-subagents/graph/badge.svg?token=LNVUIVO4Y9)](https://codecov.io/gh/pipecat-ai/pipecat-subagents) [![Docs](https://img.shields.io/badge/Documentation-blue)](https://docs.pipecat.ai/guides/features/pipecat-subagents) [![Discord](https://img.shields.io/discord/1239284677165056021)](https://discord.gg/pipecat)
 
-Pipecat Agents is a distributed multi-agent framework for [Pipecat](https://github.com/pipecat-ai/pipecat/tree/main#readme). Each agent runs its own Pipecat pipeline and communicates with other agents through a shared message bus, enabling you to decompose complex systems into specialized, coordinating agents that can run locally or across machines.
-
-Because each agent is just a Pipecat pipeline, anything you can build with Pipecat works as an agent:
-
-- A voice assistant that appears as one agent but is actually multiple specialized agents behind the scenes
-- A coordinator that spawns long-running background agents and collects results through the bus
-- Agents running on different machines or specialized hardware, communicating over the same bus
+Pipecat Subgents is a distributed multi-agent framework for [Pipecat](https://github.com/pipecat-ai/pipecat/tree/main#readme). Each agent runs its own Pipecat pipeline and communicates with other agents through a shared message bus, enabling you to decompose complex systems into specialized, coordinating agents that can run locally or across machines.
 
 Whether local or distributed, the programming model is the same: create an `AgentRunner`, connect it to the bus, and add agents.
 
-## Dependencies
-
-- Python 3.10 or higher
-- [Pipecat](https://github.com/pipecat-ai/pipecat?tab=readme-ov-file#-getting-started)
-
 ## Installation
 
-1. Install uv
+```bash
+uv add pipecat-ai-agents
 
-   ```bash
-   curl -LsSf https://astral.sh/uv/install.sh | sh
-   ```
+# or: pip install pipecat-ai-agents
+```
 
-   > **Need help?** Refer to the [uv install documentation](https://docs.astral.sh/uv/getting-started/installation/).
+> Requires Python 3.10+ and [Pipecat](https://github.com/pipecat-ai/pipecat?tab=readme-ov-file#-getting-started).
 
-2. Install the module
+## Architecture
 
-   ```bash
-   # For new projects
-   uv init my-pipecat-agents-app
-   cd my-pipecat-agents-app
-   uv add pipecat-ai-agents
+Agents communicate through a shared **AgentBus**. The diagram below shows a common voice-first topology:
 
-   # Or for existing projects
-   uv add pipecat-ai-agents
-   ```
+```
+        ┌───────────────────┐    ┌───────────────────┐    ┌──────────────────┐
+        │    Main Agent     │    │   Voice Agent     │    │   Worker(s)      │
+        │                   │    │                   │    │                  │
+        │  Transport I/O    │    │   LLM + @tool     │    │  Task Handlers   │
+        │  STT → BusBridge  │    │                   │    │                  │
+        │  BusBridge → TTS  │    │                   │    │                  │
+        └─────────┬─────────┘    └─────────┬─────────┘    └────────┬─────────┘
+              messages                 messages                 messages
+                  │                        │                       │
+        ══════════╧════════════════════════╧═══════════════════════╧══════════
+                                      Agent Bus
+        ══════════════════════════════════════════════════════════════════════
+```
 
-> **Using pip?** You can still use `pip install pipecat-ai-agents` to get set up.
+- **Main agent** owns the transport (audio I/O) and places a `BusBridgeProcessor` where an LLM would normally go. Messages flow through the bus to whichever child agent is active.
+- **Voice agent** runs an LLM with tools. It handles conversation and dispatches work to other agents.
+- **Worker agents** receive tasks, process them, and return results. A voice agent can spawn multiple workers in parallel.
+- **Any agent can own a transport** — a child agent might stream images or video through its own transport while the main agent handles voice.
+- **A voice agent isn't required** — agents can coordinate purely through tasks and bus messages for non-interactive pipelines.
 
 ## Key Concepts
 
 ### Agents
 
-Agents are the core building blocks. Each agent runs its own Pipecat pipeline and communicates with other agents via the bus.
+Each agent runs its own Pipecat pipeline and communicates via the bus.
 
-- **`BaseAgent`** — Abstract base class for all agents. Handles bus subscription, pipeline lifecycle, and agent transfer.
-- **`LLMAgent`** — Agent with an LLM pipeline. Supports tool registration, message injection on activation, and function call result handling.
-- **`FlowsAgent`** — Agent that integrates [Pipecat Flows](https://github.com/pipecat-ai/pipecat-flows) for structured, node-based conversation logic.
+- **`BaseAgent`** — Abstract base. Handles bus subscription, pipeline lifecycle, parent-child relationships, activation, and task coordination.
+- **`LLMAgent`** — Agent with an LLM pipeline. Register tools with `@tool`, inject messages on activation, and transfer between agents.
+- **`FlowsAgent`** — Agent that integrates [Pipecat Flows](https://github.com/pipecat-ai/pipecat-flows) for structured, node-based conversations.
+
+#### Lifecycle hooks
+
+| Hook                       | When it fires                                            |
+|----------------------------|----------------------------------------------------------|
+| `on_agent_started()`       | Pipeline is ready. Add child agents here.                |
+| `on_agent_registered()`    | A child agent is on the bus and ready. Activate it here. |
+| `on_agent_activated(args)` | Agent is activated (receives frames).                    |
+| `on_agent_deactivated()`   | Agent is deactivated (stops receiving frames).           |
 
 ### Bus
 
-The message bus provides pub/sub communication between agents and the runner.
+Pub/sub communication between agents and the runner.
 
 - **`AgentBus`** — Abstract base for inter-agent messaging.
 - **`LocalAgentBus`** — In-process implementation backed by `asyncio.Queue`.
-- **`BusBridgeProcessor`** — Pipeline processor that bridges frames across agent boundaries.
+- **`BusBridgeProcessor`** — Mid-pipeline processor that bridges frames across agent boundaries. Non-lifecycle frames go to the bus; bus frames are injected at the bridge position.
+
+### Tasks
+
+Tasks let a parent agent spawn workers, wait for results, and optionally cancel or time out. Workers can send a single response or stream incremental results.
+
+```
+                        Parent                              Worker
+                           │                                   │
+                           │  start_task(payload, timeout)     │
+                           ├──────────────────────────────────►│ on_task_request()
+                           │                                   │
+                           │           send_task_update()      │
+          on_task_update() │◄──────────────────────────────────┤ (optional)
+                           │                                   │
+                           │       send_task_stream_start()    │
+    on_task_stream_start() │◄──────────────────────────────────┤ ┐
+                           │       send_task_stream_data()     │ │ streaming
+     on_task_stream_data() │◄──────────────────────────────────┤ │ (optional)
+                           │       send_task_stream_end()      │ │
+      on_task_stream_end() │◄──────────────────────────────────┤ ┘
+                           │                                   │
+                           │      send_task_response(status)   │
+        on_task_response() │◄──────────────────────────────────┤
+       on_task_completed() │                                   │
+```
+
+#### Task hooks
+
+| Hook                              | When it fires                                                                     |
+|-----------------------------------|-----------------------------------------------------------------------------------|
+| `on_task_request()`               | Worker: received work from a parent.                                              |
+| `on_task_cancelled()`             | Worker: parent cancelled this task. A `CANCELLED` response is sent automatically. |
+| `on_task_response()`              | Parent: a worker sent a response.                                                 |
+| `on_task_completed()`             | Parent: all workers in the task group have responded.                             |
+| `on_task_stream_start/data/end()` | Parent: a worker is streaming incremental results.                                |
 
 ### Runner
 
@@ -108,7 +152,5 @@ We aim to review all contributions promptly and provide constructive feedback to
 ## Getting help
 
 ➡️ [Join our Discord](https://discord.gg/pipecat)
-
-➡️ [Pipecat Agents Guide](https://docs.pipecat.ai/guides/pipecat-agents)
 
 ➡️ [Reach us on X](https://x.com/pipecat_ai)

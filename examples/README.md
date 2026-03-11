@@ -1,6 +1,6 @@
-# Pipecat Agents Examples
+# Pipecat Subagents Examples
 
-This directory contains example implementations demonstrating the Pipecat Agents framework.
+This directory contains example implementations demonstrating the Pipecat Subagents framework.
 
 ## Agent Handoff
 
