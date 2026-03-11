@@ -15,7 +15,14 @@ upstream frames.
 
 from typing import Optional, Tuple, Type
 
-from pipecat.frames.frames import CancelFrame, EndFrame, Frame, StartFrame, StopFrame
+from pipecat.frames.frames import (
+    CancelFrame,
+    EndFrame,
+    Frame,
+    OutputTransportMessageUrgentFrame,
+    StartFrame,
+    StopFrame,
+)
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor, FrameProcessorSetup
 
 from pipecat_subagents.bus.bus import AgentBus
@@ -23,6 +30,7 @@ from pipecat_subagents.bus.messages import BusFrameMessage, BusMessage
 from pipecat_subagents.bus.subscriber import BusSubscriber
 
 _LIFECYCLE_FRAMES = (StartFrame, EndFrame, CancelFrame, StopFrame)
+_PASSTHROUGH_FRAMES = (OutputTransportMessageUrgentFrame,)
 
 
 class BusBridgeProcessor(FrameProcessor, BusSubscriber):
@@ -91,6 +99,12 @@ class BusBridgeProcessor(FrameProcessor, BusSubscriber):
 
         # Lifecycle frames never cross the bus
         if isinstance(frame, _LIFECYCLE_FRAMES):
+            await self.push_frame(frame, direction)
+            return
+
+        # Urgent transport frames pass through directly — they need to
+        # reach the transport even when no child agent is active yet.
+        if isinstance(frame, _PASSTHROUGH_FRAMES):
             await self.push_frame(frame, direction)
             return
 
