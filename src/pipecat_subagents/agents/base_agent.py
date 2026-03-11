@@ -181,6 +181,8 @@ class BaseAgent(BaseObject, BusSubscriber):
     Overridable lifecycle methods (always call ``super()``):
 
     - ``on_agent_started()``: Called once when the agent's pipeline is ready.
+    - ``on_agent_registered(agent_name)``: Called when a child agent's
+      pipeline has started and is ready to receive messages.
     - ``on_agent_activated(args)``: Called each time the agent is activated.
     - ``on_agent_deactivated()``: Called when the agent is deactivated.
     - ``on_task_request(task_id, requester, payload)``: Called when a task
@@ -205,6 +207,7 @@ class BaseAgent(BaseObject, BusSubscriber):
     Event handlers:
 
     - on_agent_started(agent)
+    - on_agent_registered(agent, agent_name)
     - on_agent_activated(agent, args)
     - on_agent_deactivated(agent)
     - on_task_request(agent, task_id, requester, payload)
@@ -269,6 +272,7 @@ class BaseAgent(BaseObject, BusSubscriber):
         self._task_groups: dict[str, TaskGroup] = {}
 
         self._register_event_handler("on_agent_started")
+        self._register_event_handler("on_agent_registered")
         self._register_event_handler("on_agent_activated")
         self._register_event_handler("on_agent_deactivated")
         self._register_event_handler("on_bus_message")
@@ -324,6 +328,16 @@ class BaseAgent(BaseObject, BusSubscriber):
 
     async def on_agent_started(self) -> None:
         """Called once when the agent's pipeline is ready."""
+        pass
+
+    async def on_agent_registered(self, agent_name: str) -> None:
+        """Called when a child agent has registered on the bus.
+
+        The child is ready to receive messages.
+
+        Args:
+            agent_name: The name of the child agent that registered.
+        """
         pass
 
     async def on_agent_activated(self, args: Optional[dict]) -> None:
@@ -458,12 +472,14 @@ class BaseAgent(BaseObject, BusSubscriber):
         if message.target and message.target != self.name:
             return
 
-        if isinstance(message, BusActivateAgentMessage):
-            await self._activate(message)
+        if isinstance(message, BusAgentRegisteredMessage):
+            await self._handle_agent_registered(message)
+        elif isinstance(message, BusActivateAgentMessage):
+            await self._handle_agent_activate(message)
         elif isinstance(message, BusEndAgentMessage):
-            await self._end(message)
+            await self._handle_agent_end(message)
         elif isinstance(message, BusCancelAgentMessage):
-            await self._cancel(message)
+            await self._handle_agent_cancel(message)
         elif isinstance(message, BusTaskRequestMessage):
             await self._handle_task_request(message)
         elif isinstance(message, BusTaskResponseMessage):
@@ -847,7 +863,17 @@ class BaseAgent(BaseObject, BusSubscriber):
         if self._task:
             await self._task.queue_frames(frames, direction)
 
-    async def _activate(self, message: BusActivateAgentMessage) -> None:
+    async def _handle_agent_registered(self, message: BusAgentRegisteredMessage) -> None:
+        """Notify this agent that a child has started.
+
+        Only fires for agents that are direct children of this agent.
+        """
+        child_names = {c.name for c in self._children}
+        if message.agent_name in child_names:
+            await self.on_agent_registered(message.agent_name)
+            await self._call_event_handler("on_agent_registered", message.agent_name)
+
+    async def _handle_agent_activate(self, message: BusActivateAgentMessage) -> None:
         """Handle an activation message.
 
         Stores the activation arguments and marks the agent as pending
@@ -860,7 +886,7 @@ class BaseAgent(BaseObject, BusSubscriber):
         self._pending_activation = True
         await self._maybe_activate()
 
-    async def _end(self, message: BusEndAgentMessage) -> None:
+    async def _handle_agent_end(self, message: BusEndAgentMessage) -> None:
         """Propagate end to children, wait for them, then end own pipeline.
 
         Args:
@@ -875,7 +901,7 @@ class BaseAgent(BaseObject, BusSubscriber):
         if self._task:
             await self._task.queue_frame(EndFrame(reason=message.reason))
 
-    async def _cancel(self, message: BusCancelAgentMessage) -> None:
+    async def _handle_agent_cancel(self, message: BusCancelAgentMessage) -> None:
         """Propagate cancel to children, then cancel own pipeline.
 
         Args:
