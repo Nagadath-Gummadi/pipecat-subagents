@@ -16,8 +16,8 @@ from pipecat_subagents.bus import BusBridgeProcessor, BusFrameMessage, LocalAgen
 
 
 class TestBusBridgeProcessor(unittest.IsolatedAsyncioTestCase):
-    async def test_frames_pass_through_and_sent_to_bus(self):
-        """Non-lifecycle frames pass through AND are sent to the bus."""
+    async def test_frames_sent_to_bus_not_passed_through(self):
+        """Non-lifecycle frames are sent to the bus, not passed through."""
         bus = LocalAgentBus()
         sent_to_bus = []
         original_send = bus.send
@@ -35,20 +35,18 @@ class TestBusBridgeProcessor(unittest.IsolatedAsyncioTestCase):
         pipeline = Pipeline([processor])
 
         frames_to_send = [TextFrame(text="hello")]
-        expected_down_frames = [TextFrame]
 
         down, _ = await run_test(
             pipeline,
             frames_to_send=frames_to_send,
-            expected_down_frames=expected_down_frames,
+            expected_down_frames=[],
         )
 
-        # Frame passed through downstream
-        self.assertEqual(len(down), 1)
-        self.assertIsInstance(down[0], TextFrame)
-        self.assertEqual(down[0].text, "hello")
+        # Frame NOT passed through downstream
+        text_frames = [f for f in down if isinstance(f, TextFrame)]
+        self.assertEqual(len(text_frames), 0)
 
-        # Frame also sent to bus
+        # Frame sent to bus
         bus_frame_msgs = [m for m in sent_to_bus if isinstance(m, BusFrameMessage)]
         self.assertEqual(len(bus_frame_msgs), 1)
         self.assertEqual(bus_frame_msgs[0].frame.text, "hello")
@@ -74,12 +72,12 @@ class TestBusBridgeProcessor(unittest.IsolatedAsyncioTestCase):
         pipeline = Pipeline([processor])
 
         # run_test sends StartFrame + frames_to_send + EndFrame
-        # Only TextFrame should be sent to bus, not Start/End
+        # TextFrame goes to bus (not downstream), lifecycle frames pass through
         frames_to_send = [TextFrame(text="hello")]
         await run_test(
             pipeline,
             frames_to_send=frames_to_send,
-            expected_down_frames=[TextFrame],
+            expected_down_frames=[],
         )
 
         bus_frame_msgs = [m for m in sent_to_bus if isinstance(m, BusFrameMessage)]
@@ -124,17 +122,30 @@ class TestBusBridgeProcessor(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(bus_frame_msgs), 0)
 
     async def test_bus_frame_injected_at_bridge(self):
-        """Frames from the bus are injected at the bridge position."""
+        """Frames from the bus are injected at the bridge position and
+        travel downstream alongside frames from later pipeline processors."""
         from pipecat.frames.frames import EndFrame
+        from pipecat.processors.frame_processor import FrameProcessor
         from pipecat.pipeline.runner import PipelineRunner
         from pipecat.pipeline.task import PipelineTask
 
+        class AppendFrameProcessor(FrameProcessor):
+            """Appends a TextFrame for every TextFrame it sees."""
+
+            async def process_frame(self, frame, direction):
+                await super().process_frame(frame, direction)
+                await self.push_frame(frame, direction)
+                if isinstance(frame, TextFrame):
+                    await self.push_frame(
+                        TextFrame(text="after_bridge"), direction
+                    )
+
         bus = LocalAgentBus()
-        processor = BusBridgeProcessor(
+        bridge = BusBridgeProcessor(
             bus=bus,
             agent_name="main_agent",
         )
-        pipeline = Pipeline([processor])
+        pipeline = Pipeline([bridge, AppendFrameProcessor()])
         task = PipelineTask(pipeline, cancel_on_idle_timeout=False)
 
         received = []
@@ -152,10 +163,7 @@ class TestBusBridgeProcessor(unittest.IsolatedAsyncioTestCase):
 
         async def inject_and_end():
             await asyncio.sleep(0.02)
-            # Send a normal frame, then inject from bus, then end
-            await task.queue_frame(TextFrame(text="normal"))
-            await asyncio.sleep(0.02)
-            await processor.on_bus_message(msg)
+            await bridge.on_bus_message(msg)
             await asyncio.sleep(0.02)
             await task.queue_frame(EndFrame())
 
@@ -164,7 +172,7 @@ class TestBusBridgeProcessor(unittest.IsolatedAsyncioTestCase):
 
         texts = [f.text for f in received if isinstance(f, TextFrame)]
         self.assertIn("from_child", texts)
-        self.assertIn("normal", texts)
+        self.assertIn("after_bridge", texts)
 
     async def test_skips_own_frames(self):
         """Bridge ignores bus frames from its own agent."""
