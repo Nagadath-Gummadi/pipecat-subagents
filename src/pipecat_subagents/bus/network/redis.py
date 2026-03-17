@@ -8,9 +8,18 @@
 
 import asyncio
 from dataclasses import dataclass, field
-from typing import Any
 
 from loguru import logger
+
+try:
+    from redis.asyncio import Redis
+    from redis.asyncio.client import PubSub
+except ModuleNotFoundError as e:
+    logger.error(f"Exception: {e}")
+    logger.error(
+        "In order to use RedisBus, you need to `pip install pipecat-ai-subagents[redis]`."
+    )
+    raise Exception(f"Missing module: {e}")
 
 from pipecat_subagents.bus.bus import AgentBus
 from pipecat_subagents.bus.messages import BusLocalMixin, BusMessage
@@ -27,7 +36,7 @@ class RedisConnection:
         task: Background task reading from Redis pub/sub into the queue.
     """
 
-    pubsub: Any
+    pubsub: PubSub
     queue: asyncio.Queue[BusMessage] = field(repr=False)
     task: asyncio.Task = field(repr=False)
 
@@ -59,7 +68,7 @@ class RedisBus(AgentBus):
     def __init__(
         self,
         *,
-        redis: Any,
+        redis: Redis,
         serializer: MessageSerializer,
         channel: str = "pipecat:bus",
         **kwargs,
@@ -139,7 +148,7 @@ class RedisBus(AgentBus):
         return await client.queue.get()
 
     async def _reader_task(
-        self, pubsub: Any, queue: asyncio.Queue[BusMessage]
+        self, pubsub: PubSub, queue: asyncio.Queue[BusMessage]
     ) -> None:
         """Read messages from Redis pub/sub and enqueue them."""
         try:

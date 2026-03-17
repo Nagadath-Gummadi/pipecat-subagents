@@ -23,6 +23,9 @@ dependencies = [
     "pipecat-ai>=0.0.105",
 ]
 
+[project.optional-dependencies]
+redis = ["redis[hiredis]>=5.0.0"]
+
 [project.urls]
 Source = "https://github.com/pipecat-ai/pipecat-agents"
 Website = "https://www.pipecat.ai"
