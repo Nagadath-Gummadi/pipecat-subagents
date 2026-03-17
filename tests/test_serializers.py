@@ -193,6 +193,17 @@ class TestJSONMessageSerializer(unittest.TestCase):
         data = self.serializer.serialize(msg)
         self.assertIsInstance(data, bytes)
 
+    def test_non_init_fields_preserved(self):
+        """Non-init dataclass fields survive round-trip via setattr."""
+        msg = BusMessage(source="agent_a", target="agent_b")
+        # name is a non-init field on DataFrame
+        msg.name = "custom_name"
+
+        data = self.serializer.serialize(msg)
+        restored = self.serializer.deserialize(data)
+
+        self.assertEqual(restored.name, "custom_name")
+
 
 if __name__ == "__main__":
     unittest.main()

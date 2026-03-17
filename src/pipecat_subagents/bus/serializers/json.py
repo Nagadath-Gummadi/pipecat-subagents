@@ -100,8 +100,6 @@ class JSONMessageSerializer(MessageSerializer):
         fields: dict[str, Any] = {}
 
         for f in dataclasses.fields(message):
-            if not f.init:
-                continue
             value = getattr(message, f.name)
             if value is None:
                 continue
@@ -140,11 +138,21 @@ class JSONMessageSerializer(MessageSerializer):
         if msg_cls is None:
             raise ValueError(f"Unknown message type: {type_name}")
 
-        restored = {}
+        # Split into init vs non-init fields
+        init_fields = {f.name for f in dataclasses.fields(msg_cls) if f.init}
+        init_kwargs = {}
+        post_init = {}
         for key, value in fields.items():
-            restored[key] = self._deserialize_value(value)
+            deserialized = self._deserialize_value(value)
+            if key in init_fields:
+                init_kwargs[key] = deserialized
+            else:
+                post_init[key] = deserialized
 
-        return msg_cls(**restored)
+        message = msg_cls(**init_kwargs)
+        for key, value in post_init.items():
+            setattr(message, key, value)
+        return message
 
     def _deserialize_value(self, value: Any) -> Any:
         """Deserialize a single field value."""
