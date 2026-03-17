@@ -14,7 +14,7 @@ from pipecat_subagents.bus import (
     BusFrameMessage,
     BusMessage,
     BusSubscriber,
-    LocalAgentBus,
+    AsyncQueueBus,
 )
 
 
@@ -31,7 +31,7 @@ class TestBusMessageRouting(unittest.IsolatedAsyncioTestCase):
 
     async def test_broadcast_reaches_all_subscribers(self):
         """Broadcast messages (no target) reach all subscribers."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         received_a = []
         received_b = []
 

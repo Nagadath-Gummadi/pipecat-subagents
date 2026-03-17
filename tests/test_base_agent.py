@@ -29,7 +29,7 @@ from pipecat_subagents.bus import (
     BusTaskStreamEndMessage,
     BusTaskStreamStartMessage,
     BusTaskUpdateMessage,
-    LocalAgentBus,
+    AsyncQueueBus,
 )
 
 
@@ -67,13 +67,13 @@ def capture_bus(bus):
 class TestBaseAgentLifecycle(unittest.IsolatedAsyncioTestCase):
     async def test_agent_starts_inactive_by_default(self):
         """Agent is inactive by default."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         agent = StubAgent("test", bus=bus)
         self.assertFalse(agent.active)
 
     async def test_activation_via_bus_message_after_pipeline_start(self):
         """Agent activates when BusActivateAgentMessage received and pipeline started."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         agent = StubAgent("test", bus=bus)
 
         activated = asyncio.Event()
@@ -105,7 +105,7 @@ class TestBaseAgentLifecycle(unittest.IsolatedAsyncioTestCase):
 
     async def test_active_true_constructor_activates_after_pipeline_start(self):
         """active=True triggers on_agent_activated after pipeline starts."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         agent = StubAgent("test", bus=bus, active=True)
 
         activated = asyncio.Event()
@@ -129,7 +129,7 @@ class TestBaseAgentLifecycle(unittest.IsolatedAsyncioTestCase):
 
     async def test_activate_agent_sends_activate_without_deactivating_self(self):
         """activate_agent() sends BusActivateAgentMessage without deactivating self."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         sent = capture_bus(bus)
 
         agent = StubAgent("agent_a", bus=bus, active=True)
@@ -143,7 +143,7 @@ class TestBaseAgentLifecycle(unittest.IsolatedAsyncioTestCase):
 
     async def test_end_without_parent_sends_bus_end_message(self):
         """end() with no parent sends BusEndMessage."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         sent = capture_bus(bus)
 
         agent = StubAgent("agent_a", bus=bus)
@@ -156,7 +156,7 @@ class TestBaseAgentLifecycle(unittest.IsolatedAsyncioTestCase):
 
     async def test_end_with_parent_sends_bus_end_message(self):
         """end() with parent still sends BusEndMessage (runner handles it)."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         sent = capture_bus(bus)
 
         parent = StubAgent("parent_agent", bus=bus)
@@ -171,7 +171,7 @@ class TestBaseAgentLifecycle(unittest.IsolatedAsyncioTestCase):
 
     async def test_cancel_sends_bus_cancel_message(self):
         """cancel() sends BusCancelMessage."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         sent = capture_bus(bus)
 
         agent = StubAgent("agent_a", bus=bus)
@@ -183,7 +183,7 @@ class TestBaseAgentLifecycle(unittest.IsolatedAsyncioTestCase):
 
     async def test_add_agent_sends_bus_add_agent_message(self):
         """add_agent() sends BusAddAgentMessage."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         sent = capture_bus(bus)
 
         agent = StubAgent("agent_a", bus=bus)
@@ -196,7 +196,7 @@ class TestBaseAgentLifecycle(unittest.IsolatedAsyncioTestCase):
 
     async def test_on_agent_started_event(self):
         """on_agent_started fires after pipeline starts."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         agent = StubAgent("test", bus=bus)
 
         started = asyncio.Event()
@@ -220,7 +220,7 @@ class TestBaseAgentLifecycle(unittest.IsolatedAsyncioTestCase):
 
     async def test_on_agent_deactivated_event(self):
         """on_agent_deactivated fires on deactivation."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         agent = StubAgent("test", bus=bus, active=True)
 
         deactivated = asyncio.Event()
@@ -236,7 +236,7 @@ class TestBaseAgentLifecycle(unittest.IsolatedAsyncioTestCase):
 
     async def test_bus_end_agent_message_ends_pipeline(self):
         """BusEndAgentMessage causes the pipeline to end gracefully."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         agent = StubAgent("test", bus=bus)
 
         task = await agent.create_pipeline_task()
@@ -261,7 +261,7 @@ class TestBaseAgentLifecycle(unittest.IsolatedAsyncioTestCase):
 
     async def test_bus_cancel_agent_message_cancels_pipeline(self):
         """BusCancelAgentMessage cancels the pipeline task."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         agent = StubAgent("test", bus=bus)
 
         task = await agent.create_pipeline_task()
@@ -282,7 +282,7 @@ class TestBaseAgentLifecycle(unittest.IsolatedAsyncioTestCase):
 
     async def test_queue_frame(self):
         """queue_frame injects a frame into the pipeline."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         agent = StubAgent("test", bus=bus)
 
         task = await agent.create_pipeline_task()
@@ -308,7 +308,7 @@ class TestBaseAgentLifecycle(unittest.IsolatedAsyncioTestCase):
 
     async def test_queue_frames(self):
         """queue_frames injects multiple frames into the pipeline."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         agent = StubAgent("test", bus=bus)
 
         task = await agent.create_pipeline_task()
@@ -335,7 +335,7 @@ class TestBaseAgentLifecycle(unittest.IsolatedAsyncioTestCase):
 
     async def test_self_activation_via_activate_agent(self):
         """An agent can activate itself via activate_agent(self.name)."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         agent = StubAgent("test", bus=bus)
 
         activated = asyncio.Event()
@@ -361,7 +361,7 @@ class TestBaseAgentLifecycle(unittest.IsolatedAsyncioTestCase):
 
     async def test_add_agent_tracks_children(self):
         """add_agent() populates children list and sets parent."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         parent = StubAgent("parent", bus=bus)
         child_a = StubAgent("child_a", bus=bus)
         child_b = StubAgent("child_b", bus=bus)
@@ -375,7 +375,7 @@ class TestBaseAgentLifecycle(unittest.IsolatedAsyncioTestCase):
 
     async def test_end_propagates_to_children(self):
         """BusEndAgentMessage on parent sends end to each child."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         sent = capture_bus(bus)
 
         parent = StubAgent("parent", bus=bus)
@@ -399,7 +399,7 @@ class TestBaseAgentLifecycle(unittest.IsolatedAsyncioTestCase):
 
     async def test_end_waits_for_children(self):
         """Parent waits for children to finish before ending own pipeline."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         parent = StubAgent("parent", bus=bus)
         child = StubAgent("child", bus=bus)
         await parent.add_agent(child)
@@ -430,7 +430,7 @@ class TestBaseAgentLifecycle(unittest.IsolatedAsyncioTestCase):
 
     async def test_cancel_propagates_to_children(self):
         """BusCancelAgentMessage on parent sends cancel to each child."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         sent = capture_bus(bus)
 
         parent = StubAgent("parent", bus=bus)
@@ -459,7 +459,7 @@ class _GeneratingAgent(BaseAgent):
 class TestEdgeToBus(unittest.IsolatedAsyncioTestCase):
     async def test_generated_frames_reach_bus(self):
         """Pipeline-generated frames are broadcast to the bus."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         sent = capture_bus(bus)
 
         agent = _GeneratingAgent("agent", bus=bus, enable_bus_sinks=True)
@@ -482,7 +482,7 @@ class TestEdgeToBus(unittest.IsolatedAsyncioTestCase):
 
     async def test_bus_frames_not_rebroadcast_by_same_agent(self):
         """Frames from the bus with source==self are ignored by edge processors."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         sent = capture_bus(bus)
 
         agent = StubAgent("agent", bus=bus, active=True, enable_bus_sinks=True)
@@ -521,7 +521,7 @@ class TestEdgeToBus(unittest.IsolatedAsyncioTestCase):
 
     async def test_default_agent_no_edge_sinks(self):
         """Agent without enable_bus_sinks does not get edge-to-bus wiring."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         sent = capture_bus(bus)
 
         agent = StubAgent("root", bus=bus)
@@ -542,7 +542,7 @@ class TestEdgeToBus(unittest.IsolatedAsyncioTestCase):
 
     async def test_bus_frame_enters_agent_pipeline(self):
         """Bus frame messages enter the pipeline via edge source processor."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         agent = StubAgent("agent", bus=bus, active=True, enable_bus_sinks=True)
 
         task = await agent.create_pipeline_task()
@@ -576,7 +576,7 @@ class TestEdgeToBus(unittest.IsolatedAsyncioTestCase):
 
     async def test_direction_preserved_in_bus_frame(self):
         """Direction is preserved when generated frames are sent to the bus."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         sent = capture_bus(bus)
 
         agent = _GeneratingAgent("agent", bus=bus, enable_bus_sinks=True)
@@ -601,7 +601,7 @@ class TestEdgeToBus(unittest.IsolatedAsyncioTestCase):
 class TestTaskLifecycle(unittest.IsolatedAsyncioTestCase):
     async def test_start_task_sends_add_activate_and_request(self):
         """start_task() sends BusAddAgentMessage + BusActivateAgentMessage + BusTaskRequestMessage."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         sent = capture_bus(bus)
 
         parent = StubAgent("parent", bus=bus)
@@ -625,7 +625,7 @@ class TestTaskLifecycle(unittest.IsolatedAsyncioTestCase):
 
     async def test_start_task_multiple_agents(self):
         """start_task() with multiple agents sends messages for each."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         sent = capture_bus(bus)
 
         parent = StubAgent("parent", bus=bus)
@@ -643,7 +643,7 @@ class TestTaskLifecycle(unittest.IsolatedAsyncioTestCase):
 
     async def test_on_task_request_called(self):
         """BusTaskRequestMessage triggers on_task_request with correct args."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         agent = StubAgent("worker", bus=bus)
 
         received = []
@@ -663,7 +663,7 @@ class TestTaskLifecycle(unittest.IsolatedAsyncioTestCase):
 
     async def test_send_task_response(self):
         """send_task_response() sends BusTaskResponseMessage to requester."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         sent = capture_bus(bus)
 
         agent = StubAgent("worker", bus=bus)
@@ -683,7 +683,7 @@ class TestTaskLifecycle(unittest.IsolatedAsyncioTestCase):
 
     async def test_send_task_update(self):
         """send_task_update() sends BusTaskUpdateMessage to requester."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         sent = capture_bus(bus)
 
         agent = StubAgent("worker", bus=bus)
@@ -701,7 +701,7 @@ class TestTaskLifecycle(unittest.IsolatedAsyncioTestCase):
 
     async def test_on_task_completed_fires_when_all_respond(self):
         """on_task_completed fires when all agents in a task group respond."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
 
         parent = StubAgent("parent", bus=bus)
         w1 = StubAgent("w1", bus=bus)
@@ -733,7 +733,7 @@ class TestTaskLifecycle(unittest.IsolatedAsyncioTestCase):
 
     async def test_cancel_task_sends_cancel_to_all_agents(self):
         """cancel_task() sends BusTaskCancelMessage to all agents in group."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         sent = capture_bus(bus)
 
         parent = StubAgent("parent", bus=bus)
@@ -755,7 +755,7 @@ class TestTaskLifecycle(unittest.IsolatedAsyncioTestCase):
 
     async def test_send_task_response_raises_without_active_task(self):
         """send_task_response raises RuntimeError when no active task."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         agent = StubAgent("worker", bus=bus)
 
         with self.assertRaises(RuntimeError):
@@ -763,7 +763,7 @@ class TestTaskLifecycle(unittest.IsolatedAsyncioTestCase):
 
     async def test_send_task_update_raises_without_active_task(self):
         """send_task_update raises RuntimeError when no active task."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         agent = StubAgent("worker", bus=bus)
 
         with self.assertRaises(RuntimeError):
@@ -771,7 +771,7 @@ class TestTaskLifecycle(unittest.IsolatedAsyncioTestCase):
 
     async def test_cancel_auto_sends_cancelled_response(self):
         """BusTaskCancelMessage auto-sends a cancelled response and clears state."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         agent = StubAgent("worker", bus=bus)
 
         # Set up task state
@@ -788,7 +788,7 @@ class TestTaskLifecycle(unittest.IsolatedAsyncioTestCase):
 
     async def test_on_task_cancelled_fires(self):
         """BusTaskCancelMessage triggers on_task_cancelled with correct args."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         agent = StubAgent("worker", bus=bus)
 
         received = []
@@ -812,7 +812,7 @@ class TestTaskLifecycle(unittest.IsolatedAsyncioTestCase):
 
     async def test_send_task_stream_start(self):
         """send_task_stream_start() sends BusTaskStreamStartMessage to requester."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         sent = capture_bus(bus)
 
         agent = StubAgent("worker", bus=bus)
@@ -830,7 +830,7 @@ class TestTaskLifecycle(unittest.IsolatedAsyncioTestCase):
 
     async def test_send_task_stream_data(self):
         """send_task_stream_data() sends BusTaskStreamDataMessage to requester."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         sent = capture_bus(bus)
 
         agent = StubAgent("worker", bus=bus)
@@ -848,7 +848,7 @@ class TestTaskLifecycle(unittest.IsolatedAsyncioTestCase):
 
     async def test_send_task_stream_end(self):
         """send_task_stream_end() sends BusTaskStreamEndMessage to requester."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         sent = capture_bus(bus)
 
         agent = StubAgent("worker", bus=bus)
@@ -866,7 +866,7 @@ class TestTaskLifecycle(unittest.IsolatedAsyncioTestCase):
 
     async def test_stream_end_triggers_on_task_completed(self):
         """BusTaskStreamEndMessage triggers group completion like BusTaskResponseMessage."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
 
         parent = StubAgent("parent", bus=bus)
         w1 = StubAgent("w1", bus=bus)
@@ -902,7 +902,7 @@ class TestTaskLifecycle(unittest.IsolatedAsyncioTestCase):
 
     async def test_send_task_stream_raises_without_active_task(self):
         """All stream helpers raise RuntimeError when no active task."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         agent = StubAgent("worker", bus=bus)
 
         with self.assertRaises(RuntimeError):
@@ -916,7 +916,7 @@ class TestTaskLifecycle(unittest.IsolatedAsyncioTestCase):
 
     async def test_start_task_timeout_cancels_task(self):
         """Short timeout triggers BusTaskCancelMessage with reason 'timeout'."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         sent = capture_bus(bus)
 
         parent = StubAgent("parent", bus=bus)
@@ -934,7 +934,7 @@ class TestTaskLifecycle(unittest.IsolatedAsyncioTestCase):
 
     async def test_start_task_timeout_cancelled_on_completion(self):
         """Responding before timeout prevents cancel from being sent."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         sent = capture_bus(bus)
 
         parent = StubAgent("parent", bus=bus)
@@ -957,7 +957,7 @@ class TestTaskLifecycle(unittest.IsolatedAsyncioTestCase):
 
     async def test_start_task_no_timeout_by_default(self):
         """timeout_task is None when no timeout is given."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
 
         parent = StubAgent("parent", bus=bus)
         worker = StubAgent("worker", bus=bus)

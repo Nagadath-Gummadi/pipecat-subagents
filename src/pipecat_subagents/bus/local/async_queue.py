@@ -12,7 +12,7 @@ from pipecat_subagents.bus.bus import AgentBus
 from pipecat_subagents.bus.messages import BusMessage
 
 
-class LocalAgentBus(AgentBus):
+class AsyncQueueBus(AgentBus):
     """In-process bus that fans out messages via per-subscriber queues.
 
     Each `connect()` call creates a new `asyncio.Queue`. `send()` puts
@@ -20,7 +20,7 @@ class LocalAgentBus(AgentBus):
     """
 
     def __init__(self, **kwargs):
-        """Initialize the LocalAgentBus.
+        """Initialize the AsyncQueueBus.
 
         Args:
             **kwargs: Additional arguments passed to `AgentBus`.

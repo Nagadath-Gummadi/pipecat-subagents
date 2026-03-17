@@ -7,13 +7,13 @@
 import asyncio
 import unittest
 
-from pipecat_subagents.bus import BusMessage, BusSubscriber, LocalAgentBus
+from pipecat_subagents.bus import BusMessage, BusSubscriber, AsyncQueueBus
 
 
-class TestLocalAgentBus(unittest.IsolatedAsyncioTestCase):
+class TestAsyncQueueBus(unittest.IsolatedAsyncioTestCase):
     async def test_send_receive_round_trip(self):
         """send() enqueues, receive() dequeues the same message."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         client = await bus.connect()
         msg = BusMessage(source="agent_a")
         await bus.send(msg)
@@ -23,7 +23,7 @@ class TestLocalAgentBus(unittest.IsolatedAsyncioTestCase):
 
     async def test_multiple_messages_in_order(self):
         """Messages are dispatched in FIFO order."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         received = []
 
         class OrderSub(BusSubscriber):
@@ -45,7 +45,7 @@ class TestLocalAgentBus(unittest.IsolatedAsyncioTestCase):
 
     async def test_start_stop_lifecycle(self):
         """start() begins subscriber tasks, stop() cancels them cleanly."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         received = []
 
         class LifecycleSub(BusSubscriber):
@@ -72,7 +72,7 @@ class TestLocalAgentBus(unittest.IsolatedAsyncioTestCase):
 class TestBusSubscriber(unittest.IsolatedAsyncioTestCase):
     async def test_subscribe_calls_on_bus_message(self):
         """subscribe() delivers messages to subscriber's on_bus_message."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         received = []
 
         class MySub(BusSubscriber):
@@ -92,7 +92,7 @@ class TestBusSubscriber(unittest.IsolatedAsyncioTestCase):
 
     async def test_multiple_subscribers_independent(self):
         """Two subscribers each get every message on their own task."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         received_1 = []
         received_2 = []
 
@@ -120,7 +120,7 @@ class TestBusSubscriber(unittest.IsolatedAsyncioTestCase):
 
     async def test_unsubscribe_stops_delivery(self):
         """unsubscribe() prevents further message delivery."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         received = []
 
         class MySub(BusSubscriber):
@@ -145,7 +145,7 @@ class TestBusSubscriber(unittest.IsolatedAsyncioTestCase):
 
     async def test_slow_subscriber_does_not_block_others(self):
         """A slow subscriber does not block a fast subscriber."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         fast_received = []
         fast_done = asyncio.Event()
 

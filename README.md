@@ -67,7 +67,7 @@ Each agent runs its own Pipecat pipeline and communicates via the bus.
 Pub/sub communication between agents and the runner.
 
 - **`AgentBus`** — Abstract base for inter-agent messaging.
-- **`LocalAgentBus`** — In-process implementation backed by `asyncio.Queue`.
+- **`AsyncQueueBus`** — In-process implementation backed by `asyncio.Queue`.
 - **`BusBridgeProcessor`** — Mid-pipeline processor that bridges frames across agent boundaries. Non-lifecycle frames go to the bus; bus frames are injected at the bridge position.
 
 ### Tasks

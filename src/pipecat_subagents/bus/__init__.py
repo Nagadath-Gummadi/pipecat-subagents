@@ -10,7 +10,7 @@ Provides the pub/sub infrastructure that connects agents to each other and to
 the runner. Key components:
 
 - `AgentBus` -- abstract base class defining the send/receive interface.
-- `LocalAgentBus` -- in-process implementation backed by an ``asyncio.Queue``.
+- `AsyncQueueBus` -- in-process implementation backed by ``asyncio.Queue``.
 - `BusBridgeProcessor` -- bidirectional mid-pipeline bridge for
   transport/session agents that exchanges frames with other agents
   through the bus.
@@ -21,7 +21,7 @@ the runner. Key components:
 
 from pipecat_subagents.bus.bridge_processor import BusBridgeProcessor
 from pipecat_subagents.bus.bus import AgentBus
-from pipecat_subagents.bus.local_bus import LocalAgentBus
+from pipecat_subagents.bus.local import AsyncQueueBus
 from pipecat_subagents.bus.messages import (
     BusActivateAgentMessage,
     BusAddAgentMessage,
@@ -54,7 +54,7 @@ from pipecat_subagents.bus.subscriber import BusSubscriber
 
 __all__ = [
     "AgentBus",
-    "LocalAgentBus",
+    "AsyncQueueBus",
     "BusActivateAgentMessage",
     "BusAddAgentMessage",
     "BusAgentRegisteredMessage",

@@ -16,13 +16,13 @@ from pipecat.utils.base_object import BaseObject
 from pipecat_subagents.agents.base_agent import BaseAgent
 from pipecat_subagents.bus import (
     AgentBus,
+    AsyncQueueBus,
     BusAddAgentMessage,
     BusCancelAgentMessage,
     BusCancelMessage,
     BusEndAgentMessage,
     BusEndMessage,
     BusMessage,
-    LocalAgentBus,
 )
 from pipecat_subagents.bus.subscriber import BusSubscriber
 
@@ -58,13 +58,13 @@ class AgentRunner(BaseObject, BusSubscriber):
         """Initialize the `AgentRunner`.
 
         Args:
-            bus: Optional `AgentBus` instance. Creates a `LocalAgentBus`
+            bus: Optional `AgentBus` instance. Creates an `AsyncQueueBus`
                 if not provided.
             handle_sigint: Whether to handle SIGINT for graceful shutdown.
                 Defaults to True.
         """
         super().__init__()
-        self._bus = bus or LocalAgentBus()
+        self._bus = bus or AsyncQueueBus()
 
         self._running: bool = False
         self._agents: dict[str, BaseAgent] = {}

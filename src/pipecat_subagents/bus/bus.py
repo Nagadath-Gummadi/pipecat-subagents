@@ -7,7 +7,7 @@
 """Abstract agent bus for inter-agent pub/sub messaging.
 
 Provides the abstract `AgentBus` base class. Concrete implementations
-(e.g. `LocalAgentBus`) live in separate modules.
+(e.g. `AsyncQueueBus`) live in separate modules.
 """
 
 import asyncio

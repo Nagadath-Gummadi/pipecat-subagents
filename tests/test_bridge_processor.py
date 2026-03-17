@@ -12,13 +12,13 @@ from pipecat.pipeline.pipeline import Pipeline
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.tests.utils import run_test
 
-from pipecat_subagents.bus import BusBridgeProcessor, BusFrameMessage, LocalAgentBus
+from pipecat_subagents.bus import BusBridgeProcessor, BusFrameMessage, AsyncQueueBus
 
 
 class TestBusBridgeProcessor(unittest.IsolatedAsyncioTestCase):
     async def test_frames_sent_to_bus_not_passed_through(self):
         """Non-lifecycle frames are sent to the bus, not passed through."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         sent_to_bus = []
         original_send = bus.send
 
@@ -55,7 +55,7 @@ class TestBusBridgeProcessor(unittest.IsolatedAsyncioTestCase):
 
     async def test_lifecycle_frames_pass_through_not_sent_to_bus(self):
         """Lifecycle frames pass through but are never sent to the bus."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         sent_to_bus = []
         original_send = bus.send
 
@@ -87,7 +87,7 @@ class TestBusBridgeProcessor(unittest.IsolatedAsyncioTestCase):
 
     async def test_exclude_frames_not_sent_to_bus(self):
         """Excluded frame types pass through but are not sent to the bus."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         sent_to_bus = []
         original_send = bus.send
 
@@ -138,7 +138,7 @@ class TestBusBridgeProcessor(unittest.IsolatedAsyncioTestCase):
                 if isinstance(frame, TextFrame):
                     await self.push_frame(TextFrame(text="after_bridge"), direction)
 
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         bridge = BusBridgeProcessor(
             bus=bus,
             agent_name="main_agent",
@@ -174,7 +174,7 @@ class TestBusBridgeProcessor(unittest.IsolatedAsyncioTestCase):
 
     async def test_skips_own_frames(self):
         """Bridge ignores bus frames from its own agent."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         processor = BusBridgeProcessor(
             bus=bus,
             agent_name="test_agent",
@@ -202,7 +202,7 @@ class TestBusBridgeProcessor(unittest.IsolatedAsyncioTestCase):
 
     async def test_target_agent_filtering(self):
         """Bridge with target_agent only accepts frames from that agent."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         processor = BusBridgeProcessor(
             bus=bus,
             agent_name="main_agent",
@@ -239,7 +239,7 @@ class TestBusBridgeProcessor(unittest.IsolatedAsyncioTestCase):
 
     async def test_targeted_message_for_other_agent_skipped(self):
         """Bridge skips bus messages targeted at a different agent."""
-        bus = LocalAgentBus()
+        bus = AsyncQueueBus()
         processor = BusBridgeProcessor(
             bus=bus,
             agent_name="main_agent",
