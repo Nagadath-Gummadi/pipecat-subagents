@@ -9,39 +9,39 @@
 from abc import ABC, abstractmethod
 from typing import Any
 
-from pipecat.frames.frames import Frame
-
 from pipecat_subagents.bus.messages import BusMessage
 
 
-class FrameAdapter(ABC):
-    """Serialize and deserialize a specific Pipecat frame type.
+class TypeAdapter(ABC):
+    """Serialize and deserialize instances of a specific type.
 
-    Each adapter handles one or more frame types, converting them to/from
+    Each adapter handles one or more types, converting them to/from
     a JSON-compatible dict representation suitable for network transport.
+    Register adapters on a `MessageSerializer` to handle non-JSON-native
+    field values (e.g. Pipecat frames, aggregator messages).
     """
 
     @abstractmethod
-    def serialize(self, frame: Frame) -> dict[str, Any]:
-        """Convert a frame to a JSON-compatible dict.
+    def serialize(self, obj: Any) -> dict[str, Any]:
+        """Convert an object to a JSON-compatible dict.
 
         Args:
-            frame: The Pipecat frame to serialize.
+            obj: The object to serialize.
 
         Returns:
-            A dict representation of the frame.
+            A dict representation of the object.
         """
         pass
 
     @abstractmethod
-    def deserialize(self, data: dict[str, Any]) -> Frame:
-        """Reconstruct a frame from a dict.
+    def deserialize(self, data: dict[str, Any]) -> Any:
+        """Reconstruct an object from a dict.
 
         Args:
             data: The dict representation produced by `serialize()`.
 
         Returns:
-            The reconstructed Pipecat frame.
+            The reconstructed object.
         """
         pass
 

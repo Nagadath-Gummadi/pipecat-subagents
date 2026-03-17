@@ -19,10 +19,10 @@ from pipecat_subagents.bus import (
     BusTaskRequestMessage,
 )
 from pipecat_subagents.bus.network.redis import RedisBus
-from pipecat_subagents.bus.serializers import FrameAdapter, JSONMessageSerializer
+from pipecat_subagents.bus.serializers import TypeAdapter, JSONMessageSerializer
 
 
-class TextFrameAdapter(FrameAdapter):
+class TextTypeAdapter(TypeAdapter):
     """Test adapter for TextFrame."""
 
     def serialize(self, frame: Frame) -> dict[str, Any]:
@@ -88,7 +88,7 @@ class TestRedisBus(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.redis = FakeRedis()
         self.serializer = JSONMessageSerializer()
-        self.serializer.register_frame_adapter(TextFrame, TextFrameAdapter())
+        self.serializer.register_adapter(TextFrame, TextTypeAdapter())
         self.bus = RedisBus(
             redis=self.redis,
             serializer=self.serializer,

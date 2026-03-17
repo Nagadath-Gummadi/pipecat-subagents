@@ -20,12 +20,12 @@ from pipecat_subagents.bus.messages import (
     BusTaskResponseMessage,
 )
 from pipecat_subagents.bus.serializers import (
-    FrameAdapter,
+    TypeAdapter,
     JSONMessageSerializer,
 )
 
 
-class TextFrameAdapter(FrameAdapter):
+class TextTypeAdapter(TypeAdapter):
     """Test adapter for TextFrame."""
 
     def serialize(self, frame: Frame) -> dict[str, Any]:
@@ -38,7 +38,7 @@ class TextFrameAdapter(FrameAdapter):
 class TestJSONMessageSerializer(unittest.TestCase):
     def setUp(self):
         self.serializer = JSONMessageSerializer()
-        self.serializer.register_frame_adapter(TextFrame, TextFrameAdapter())
+        self.serializer.register_adapter(TextFrame, TextTypeAdapter())
 
     def test_round_trip_simple_message(self):
         """BusMessage serializes and deserializes correctly."""
@@ -189,7 +189,7 @@ class TestJSONMessageSerializer(unittest.TestCase):
             frame=CustomTextFrame(text="sub"),
             direction=FrameDirection.DOWNSTREAM,
         )
-        # TextFrameAdapter is registered for TextFrame, should handle subclass
+        # TextTypeAdapter is registered for TextFrame, should handle subclass
         data = self.serializer.serialize(msg)
         self.assertIsInstance(data, bytes)
 
