@@ -193,8 +193,8 @@ class BaseAgent(BaseObject, BusSubscriber):
     Overridable lifecycle methods (always call ``super()``):
 
     - ``on_agent_started()``: Called once when the agent's pipeline is ready.
-    - ``on_agent_registered(agent_name)``: Called when a child agent's
-      pipeline has started and is ready to receive messages.
+    - ``on_agent_registered(agent_name)``: Called when any agent (local
+      or remote) has registered on the bus and is ready to receive messages.
     - ``on_agent_activated(args)``: Called each time the agent is activated.
     - ``on_agent_deactivated()``: Called when the agent is deactivated.
     - ``on_task_request(task_id, requester, payload)``: Called when a task
@@ -347,12 +347,13 @@ class BaseAgent(BaseObject, BusSubscriber):
         pass
 
     async def on_agent_registered(self, agent_name: str) -> None:
-        """Called when a child agent has registered on the bus.
+        """Called when another agent has registered on the bus.
 
-        The child is ready to receive messages.
+        Fires for every agent (local or remote) except this agent itself
+        (use ``on_agent_started`` for self-readiness).
 
         Args:
-            agent_name: The name of the child agent that registered.
+            agent_name: The name of the agent that registered.
         """
         pass
 
@@ -946,14 +947,14 @@ class BaseAgent(BaseObject, BusSubscriber):
             await self._task.queue_frames(frames, direction)
 
     async def _handle_agent_registered(self, message: BusAgentRegisteredMessage) -> None:
-        """Notify this agent that a child has started.
+        """Notify this agent that another agent has registered on the bus.
 
-        Only fires for agents that are direct children of this agent.
+        Skips the agent's own registration (use ``on_agent_started`` instead).
         """
-        child_names = {c.name for c in self._children}
-        if message.agent_name in child_names:
-            await self.on_agent_registered(message.agent_name)
-            await self._call_event_handler("on_agent_registered", message.agent_name)
+        if message.agent_name == self.name:
+            return
+        await self.on_agent_registered(message.agent_name)
+        await self._call_event_handler("on_agent_registered", message.agent_name)
 
     async def _handle_agent_activate(self, message: BusActivateAgentMessage) -> None:
         """Handle an activation message.
