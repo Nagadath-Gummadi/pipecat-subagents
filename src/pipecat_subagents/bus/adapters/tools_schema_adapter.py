@@ -8,7 +8,10 @@
 
 from typing import Any, Optional
 
-from pipecat_subagents.bus.adapters.base import TypeAdapter
+from pipecat.adapters.schemas.function_schema import FunctionSchema
+from pipecat.adapters.schemas.tools_schema import ToolsSchema
+
+from pipecat_subagents.bus.adapters.base import DeserializeFunc, SerializeFunc, TypeAdapter
 
 
 class ToolsSchemaAdapter(TypeAdapter):
@@ -18,38 +21,34 @@ class ToolsSchemaAdapter(TypeAdapter):
     ``FunctionSchema.to_default_dict()``.
     """
 
-    def serialize(self, obj: Any) -> dict[str, Any]:
+    def serialize(self, obj: Any, serialize_value: SerializeFunc) -> dict[str, Any]:
         """Serialize a ``ToolsSchema`` to a JSON-compatible dict.
 
         Args:
             obj: A ``ToolsSchema`` instance.
+            serialize_value: Callback to recursively serialize nested values.
 
         Returns:
             A dict with a ``standard_tools`` list.
         """
-        from pipecat.adapters.schemas.function_schema import FunctionSchema
+        return {"standard_tools": [tool.to_default_dict() for tool in obj.standard_tools]}
 
-        tools = []
-        for tool in obj.standard_tools:
-            if isinstance(tool, FunctionSchema):
-                tools.append(tool.to_default_dict())
-            else:
-                tools.append(tool.to_default_dict())
-        return {"standard_tools": tools}
-
-    def deserialize(self, data: dict[str, Any], target_type: Optional[type] = None) -> Any:
+    def deserialize(
+        self,
+        data: dict[str, Any],
+        deserialize_value: DeserializeFunc,
+        target_type: Optional[type] = None,
+    ) -> Any:
         """Reconstruct a ``ToolsSchema`` from a serialized dict.
 
         Args:
             data: A dict produced by ``serialize()``.
+            deserialize_value: Callback to recursively deserialize nested values.
             target_type: Unused. ``ToolsSchema`` is always the target.
 
         Returns:
             A new ``ToolsSchema`` instance.
         """
-        from pipecat.adapters.schemas.function_schema import FunctionSchema
-        from pipecat.adapters.schemas.tools_schema import ToolsSchema
-
         tools = []
         for item in data["standard_tools"]:
             params = item.get("parameters", {})

@@ -7,7 +7,10 @@
 """Abstract base class for type adapters."""
 
 from abc import ABC, abstractmethod
-from typing import Any, Optional
+from typing import Any, Callable, Optional
+
+SerializeFunc = Callable[[Any], Any]
+DeserializeFunc = Callable[[Any], Any]
 
 
 class TypeAdapter(ABC):
@@ -15,16 +18,21 @@ class TypeAdapter(ABC):
 
     Each adapter handles one or more types, converting them to/from
     a JSON-compatible dict representation suitable for network transport.
-    Register adapters on a `MessageSerializer` to handle non-JSON-native
-    field values (e.g. Pipecat frames, aggregator messages).
+    Register adapters on a ``MessageSerializer`` to handle non-JSON-native
+    field values (e.g. ``LLMContext``, ``ToolsSchema``).
+
+    Adapters receive ``serialize_value`` and ``deserialize_value`` callbacks
+    from the serializer so they can recursively serialize nested fields
+    without importing the serializer itself.
     """
 
     @abstractmethod
-    def serialize(self, obj: Any) -> dict[str, Any]:
+    def serialize(self, obj: Any, serialize_value: SerializeFunc) -> dict[str, Any]:
         """Convert an object to a JSON-compatible dict.
 
         Args:
             obj: The object to serialize.
+            serialize_value: Callback to recursively serialize nested values.
 
         Returns:
             A dict representation of the object.
@@ -32,14 +40,18 @@ class TypeAdapter(ABC):
         pass
 
     @abstractmethod
-    def deserialize(self, data: dict[str, Any], target_type: Optional[type] = None) -> Any:
+    def deserialize(
+        self,
+        data: dict[str, Any],
+        deserialize_value: DeserializeFunc,
+        target_type: Optional[type] = None,
+    ) -> Any:
         """Reconstruct an object from a dict.
 
         Args:
             data: The dict representation produced by ``serialize()``.
-            target_type: The resolved target class. Adapters registered
-                for a base class (e.g. ``Frame``) use this to instantiate
-                the correct subclass. Defaults to None.
+            deserialize_value: Callback to recursively deserialize nested values.
+            target_type: The resolved target class. Defaults to None.
 
         Returns:
             The reconstructed object.

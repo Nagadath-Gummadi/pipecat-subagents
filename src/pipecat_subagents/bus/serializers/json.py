@@ -106,7 +106,7 @@ class JSONMessageSerializer(MessageSerializer):
         if adapter is not None:
             return {
                 "__type__": f"{type(value).__module__}.{type(value).__name__}",
-                "__data__": adapter.serialize(value),
+                "__data__": adapter.serialize(value, self._serialize_value),
             }
         if dataclasses.is_dataclass(value) and not isinstance(value, type):
             fields = {}
@@ -150,7 +150,7 @@ class JSONMessageSerializer(MessageSerializer):
             return cls[data]
         adapter = self._find_adapter(cls)
         if adapter is not None:
-            return adapter.deserialize(data, target_type=cls)
+            return adapter.deserialize(data, self._deserialize_value, target_type=cls)
         if dataclasses.is_dataclass(cls) and isinstance(data, dict):
             init_fields = {f.name: f for f in dataclasses.fields(cls) if f.init}
             init_kwargs = {}
