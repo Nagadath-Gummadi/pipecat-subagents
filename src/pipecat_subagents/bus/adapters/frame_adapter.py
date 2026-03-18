@@ -41,6 +41,11 @@ class FrameAdapter(TypeAdapter):
     """
 
     def __init__(self):
+        """Initialize the adapter with built-in nested adapters.
+
+        Registers a default ``_LLMContextAdapter`` for ``LLMContext`` fields
+        and builds an initial registry of all known ``Frame`` subclasses.
+        """
         self._adapters: dict[type, TypeAdapter] = {
             LLMContext: _LLMContextAdapter(),
         }
@@ -57,6 +62,19 @@ class FrameAdapter(TypeAdapter):
         self._adapters[type_] = adapter
 
     def serialize(self, obj: Any) -> dict[str, Any]:
+        """Serialize a Pipecat frame to a JSON-compatible dict.
+
+        Iterates over the frame's dataclass fields and converts each value
+        to a JSON-safe representation.  Non-JSON-native values are delegated
+        to registered nested adapters.  ``None`` fields are omitted.
+
+        Args:
+            obj: A Pipecat ``Frame`` dataclass instance.
+
+        Returns:
+            A dict containing a ``frame_type`` key and one entry per
+            serializable field.
+        """
         result: dict[str, Any] = {"frame_type": type(obj).__name__}
         for f in dataclasses.fields(obj):
             value = getattr(obj, f.name)
@@ -68,6 +86,21 @@ class FrameAdapter(TypeAdapter):
         return result
 
     def deserialize(self, data: dict[str, Any]) -> Any:
+        """Reconstruct a Pipecat frame from a serialized dict.
+
+        Resolves the frame class from the ``frame_type`` key, splits fields
+        into init and non-init groups, and reconstructs the frame.  If the
+        frame type is unknown the frame registry is rebuilt to pick up any
+        newly imported subclasses.
+
+        Args:
+            data: A dict produced by ``serialize()``, containing a
+                ``frame_type`` key and field entries.
+
+        Returns:
+            The reconstructed ``Frame`` instance, or ``None`` if the frame
+            type cannot be resolved.
+        """
         frame_type_name = data["frame_type"]
         # Rebuild registry in case new frame subclasses were imported
         if frame_type_name not in self._frame_types:
@@ -169,6 +202,19 @@ class _LLMContextAdapter(TypeAdapter):
     """
 
     def serialize(self, obj: Any) -> dict[str, Any]:
+        """Serialize an ``LLMContext`` to a JSON-compatible dict.
+
+        Converts the message list, tools, and tool_choice.  Fields set to
+        the ``NOT_GIVEN`` sentinel are omitted so that the sentinel can be
+        restored during deserialization.
+
+        Args:
+            obj: An ``LLMContext`` instance.
+
+        Returns:
+            A dict with ``messages`` and, optionally, ``tools`` and
+            ``tool_choice`` keys.
+        """
         result: dict[str, Any] = {
             "messages": [self._serialize_message(m) for m in obj.messages],
         }
@@ -179,6 +225,18 @@ class _LLMContextAdapter(TypeAdapter):
         return result
 
     def deserialize(self, data: dict[str, Any]) -> Any:
+        """Reconstruct an ``LLMContext`` from a serialized dict.
+
+        Missing ``tools`` and ``tool_choice`` keys are restored as
+        OpenAI's ``NOT_GIVEN`` sentinel so that downstream code can
+        distinguish "not provided" from an explicit ``None``.
+
+        Args:
+            data: A dict produced by ``serialize()``.
+
+        Returns:
+            A new ``LLMContext`` instance.
+        """
         from openai import NOT_GIVEN as OPENAI_NOT_GIVEN
 
         messages = [self._deserialize_message(m) for m in data["messages"]]

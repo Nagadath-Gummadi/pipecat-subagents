@@ -6,15 +6,15 @@ each agent runs as a separate process connected via Redis pub/sub.
 ## Architecture
 
 ```
-Machine A                    Redis                    Machine B
-+-----------+          +-------------+          +-------------+
-| main_agent|  <---->  | pub/sub     |  <---->  | llm_agent   |
-| (transport,|          | channel:    |          | (greeter)   |
+Machine A                    Redis                  Machine B
++------------+          +-------------+          +-------------+
+| main_agent |  <---->  | pub/sub     |  <---->  |  llm_agent  |
+| (transport,|          | channel:    |          |  (greeter)  |
 |  STT, TTS) |          | pipecat:acme|          +-------------+
-+-----------+          +-------------+          +-------------+
-                            ^                   | llm_agent   |
-                            +-----------------> | (support)   |
-                                                +-------------+
++------------+          +-------------+          +-------------+
+                               ^                 |  llm_agent  |
+                               +-------------->  |  (support)  |
+                                                 +-------------+
 ```
 
 - **main_agent.py** — Transport agent: Daily WebRTC, Deepgram STT, Cartesia TTS
@@ -55,10 +55,10 @@ python llm_agent.py support --redis-url redis://your-redis-host:6379
 
 ## Environment variables
 
-| Variable | Required by |
-|---|---|
-| `OPENAI_API_KEY` | llm_agent.py |
+| Variable           | Required by   |
+|--------------------|---------------|
+| `OPENAI_API_KEY`   | llm_agent.py  |
 | `DEEPGRAM_API_KEY` | main_agent.py |
 | `CARTESIA_API_KEY` | main_agent.py |
-| `DAILY_ROOM_URL` | main_agent.py |
+| `DAILY_ROOM_URL`   | main_agent.py |
 | `DAILY_ROOM_TOKEN` | main_agent.py |
