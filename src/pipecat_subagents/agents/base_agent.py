@@ -355,7 +355,7 @@ class BaseAgent(BaseObject, BusSubscriber):
         Args:
             agent_name: The name of the agent that registered.
         """
-        pass
+        logger.debug(f"Agent '{agent_name}' registered")
 
     async def on_agent_activated(self, args: Optional[dict]) -> None:
         """Called each time the agent is activated.
