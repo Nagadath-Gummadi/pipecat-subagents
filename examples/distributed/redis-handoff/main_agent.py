@@ -36,7 +36,7 @@ from pipecat.transports.daily.transport import DailyParams, DailyTransport
 from redis.asyncio import Redis
 
 from pipecat_subagents.agents import BaseAgent, LLMActivationArgs
-from pipecat_subagents.bus import AgentBus, BusAgentRegisteredMessage, BusBridgeProcessor, BusMessage
+from pipecat_subagents.bus import AgentBus, BusBridgeProcessor
 from pipecat_subagents.bus.network.redis import RedisBus
 from pipecat_subagents.bus.serializers import JSONMessageSerializer
 from pipecat_subagents.runner import AgentRunner
@@ -55,11 +55,8 @@ class AcmeAgent(BaseAgent):
         super().__init__(name, bus=bus)
         self._transport = transport
 
-    async def on_bus_message(self, message: BusMessage) -> None:
-        await super().on_bus_message(message)
-        # In the distributed case, LLM agents aren't children — listen for
-        # their registration directly via bus messages.
-        if isinstance(message, BusAgentRegisteredMessage) and message.agent_name == "greeter":
+    async def on_agent_registered(self, agent_name: str) -> None:
+        if agent_name == "greeter":
             await self.activate_agent(
                 "greeter",
                 args=LLMActivationArgs(
