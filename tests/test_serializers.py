@@ -152,7 +152,7 @@ class TestJSONMessageSerializer(unittest.TestCase):
 
     def test_unknown_message_type_returns_none(self):
         """Deserializing an unknown message type returns None."""
-        bad_data = b'{"type":"BogusMessage","fields":{"source":"a"}}'
+        bad_data = b'{"__type__":"bogus.BogusMessage","__data__":{"source":"a"}}'
         result = self.serializer.deserialize(bad_data)
         self.assertIsNone(result)
 

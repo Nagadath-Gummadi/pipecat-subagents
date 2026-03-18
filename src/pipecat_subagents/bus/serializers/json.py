@@ -66,11 +66,8 @@ class JSONMessageSerializer(MessageSerializer):
 
         Returns:
             UTF-8 encoded JSON bytes.
-
-        Raises:
-            ValueError: If a field contains a value with no registered adapter.
         """
-        data = self._message_to_dict(message)
+        data = self._serialize_value(message)
         return json.dumps(data, separators=(",", ":")).encode("utf-8")
 
     def deserialize(self, data: bytes) -> Optional[BusMessage]:
@@ -80,31 +77,13 @@ class JSONMessageSerializer(MessageSerializer):
             data: The JSON bytes produced by `serialize()`.
 
         Returns:
-            The reconstructed `BusMessage`.
-
-        Raises:
-            ValueError: If the message type is unknown or an adapter is missing.
+            The reconstructed `BusMessage`, or None if deserialization fails.
         """
         payload = json.loads(data)
-        return self._dict_to_message(payload)
-
-    def _message_to_dict(self, message: BusMessage) -> dict[str, Any]:
-        """Convert a message to a JSON-compatible dict."""
-        type_name = f"{type(message).__module__}.{type(message).__name__}"
-        fields: dict[str, Any] = {}
-
-        for f in dataclasses.fields(message):
-            value = getattr(message, f.name)
-            if value is None:
-                continue
-            serialized = self._serialize_value(value)
-            if serialized is not None:
-                fields[f.name] = serialized
-
-        return {"type": type_name, "fields": fields}
+        return self._deserialize_value(payload)
 
     def _serialize_value(self, value: Any) -> Any:
-        """Serialize a single field value."""
+        """Recursively serialize a value to a JSON-compatible representation."""
         if isinstance(value, _JSON_NATIVE):
             return value
         if isinstance(value, Enum):
@@ -116,52 +95,34 @@ class JSONMessageSerializer(MessageSerializer):
             return {k: self._serialize_value(v) for k, v in value.items()}
         if isinstance(value, list):
             return [self._serialize_value(v) for v in value]
-        # Look up a type adapter
+        if callable(value):
+            return None
         adapter = self._find_adapter(type(value))
-        if adapter is None:
-            logger.warning(
-                f"JSONMessageSerializer: skipping field with unserializable type {type(value).__name__}"
-            )
-            return None
-        return {
-            "__type__": f"{type(value).__module__}.{type(value).__name__}",
-            "__data__": adapter.serialize(value),
-        }
-
-    def _dict_to_message(self, payload: dict[str, Any]) -> Optional[BusMessage]:
-        """Reconstruct a message from a dict."""
-        type_name = payload["type"]
-        fields = payload["fields"]
-
-        msg_cls = _resolve_type(type_name)
-        if msg_cls is None:
-            logger.warning(f"JSONMessageSerializer: could not resolve message type {type_name}")
-            return None
-
-        # Split into init vs non-init fields
-        init_field_map = {f.name: f for f in dataclasses.fields(msg_cls) if f.init}
-        init_kwargs = {}
-        post_init = {}
-        for key, value in fields.items():
-            deserialized = self._deserialize_value(value)
-            if key in init_field_map:
-                init_kwargs[key] = deserialized
-            else:
-                post_init[key] = deserialized
-
-        # Fill in None for required init fields missing from the data
-        for name, f in init_field_map.items():
-            if name not in init_kwargs:
-                if f.default is dataclasses.MISSING and f.default_factory is dataclasses.MISSING:
-                    init_kwargs[name] = None
-
-        message = msg_cls(**init_kwargs)
-        for key, value in post_init.items():
-            setattr(message, key, value)
-        return message
+        if adapter is not None:
+            return {
+                "__type__": f"{type(value).__module__}.{type(value).__name__}",
+                "__data__": adapter.serialize(value),
+            }
+        if dataclasses.is_dataclass(value) and not isinstance(value, type):
+            fields = {}
+            for f in dataclasses.fields(value):
+                v = getattr(value, f.name)
+                if v is None:
+                    continue
+                serialized = self._serialize_value(v)
+                if serialized is not None:
+                    fields[f.name] = serialized
+            return {
+                "__type__": f"{type(value).__module__}.{type(value).__name__}",
+                "__data__": fields,
+            }
+        logger.warning(
+            f"JSONMessageSerializer: skipping field with unserializable type {type(value).__name__}"
+        )
+        return None
 
     def _deserialize_value(self, value: Any) -> Any:
-        """Deserialize a single field value."""
+        """Recursively deserialize a value from its JSON representation."""
         if isinstance(value, _JSON_NATIVE):
             return value
         if isinstance(value, list):
@@ -183,6 +144,24 @@ class JSONMessageSerializer(MessageSerializer):
         adapter = self._find_adapter(cls)
         if adapter is not None:
             return adapter.deserialize(data, target_type=cls)
+        if dataclasses.is_dataclass(cls) and isinstance(data, dict):
+            init_fields = {f.name: f for f in dataclasses.fields(cls) if f.init}
+            init_kwargs = {}
+            post_init = {}
+            for key, value in data.items():
+                deserialized = self._deserialize_value(value)
+                if key in init_fields:
+                    init_kwargs[key] = deserialized
+                else:
+                    post_init[key] = deserialized
+            for name, f in init_fields.items():
+                if name not in init_kwargs:
+                    if f.default is dataclasses.MISSING and f.default_factory is dataclasses.MISSING:
+                        init_kwargs[name] = None
+            obj = cls(**init_kwargs)
+            for key, value in post_init.items():
+                setattr(obj, key, value)
+            return obj
         logger.warning(f"JSONMessageSerializer: no adapter registered for type {type_name}")
         return None
 
