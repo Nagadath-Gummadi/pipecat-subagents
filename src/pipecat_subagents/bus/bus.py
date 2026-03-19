@@ -39,13 +39,12 @@ class BusSubscription:
 class AgentBus(BaseObject):
     """Abstract base for inter-agent and runner-agent communication.
 
-    Subclasses implement `connect()`, `disconnect()`, `send()`, and
-    `receive()`. The base class manages subscriber registration and runs
-    a per-subscriber task that reads messages via its own connection.
+    Provides pub/sub messaging where each subscriber receives messages
+    independently so that slow handlers never block other subscribers.
 
-    Subscribers are registered via `subscribe()`. Each subscriber gets
-    its own connection (via `connect()`) and task so that slow handlers
-    never block other subscribers.
+    Subclasses implement ``connect()``, ``disconnect()``, ``send()``,
+    and ``receive()`` for the specific transport (in-process queues,
+    Redis pub/sub, etc.).
     """
 
     def __init__(self, **kwargs):
@@ -59,10 +58,7 @@ class AgentBus(BaseObject):
         self._running = False
 
     async def subscribe(self, subscriber: BusSubscriber) -> None:
-        """Register a subscriber and connect it to the bus.
-
-        Creates a connection via `connect()`. If the bus is already
-        running, a delivery task is started immediately.
+        """Register a subscriber to receive messages from the bus.
 
         Args:
             subscriber: The `BusSubscriber` to register.
@@ -120,10 +116,6 @@ class AgentBus(BaseObject):
     async def connect(self) -> Any:
         """Create a new connection to the bus for reading messages.
 
-        Each subscriber gets its own connection. For local buses this
-        may simply create a queue. For distributed buses this
-        establishes a network connection or subscription.
-
         Returns:
             A client handle passed to `receive()` and `disconnect()`.
         """
@@ -131,9 +123,6 @@ class AgentBus(BaseObject):
 
     async def disconnect(self, client: Any) -> None:
         """Clean up a connection created by `connect()`.
-
-        Called when a subscriber task is cancelled. Override in
-        subclasses that need to release network resources.
 
         Args:
             client: The client handle returned by `connect()`.

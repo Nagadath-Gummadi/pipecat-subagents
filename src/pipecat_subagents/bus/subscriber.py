@@ -10,11 +10,9 @@ from pipecat_subagents.bus.messages import BusMessage
 
 
 class BusSubscriber:
-    """Mixin for objects that subscribe to an AgentBus.
+    """Mixin for objects that receive messages from an `AgentBus`.
 
-    Implementors override ``on_bus_message()`` to handle incoming
-    messages. The bus manages a dedicated queue and task per subscriber,
-    so handlers never block other subscribers.
+    Implementors override `on_bus_message()` to handle incoming messages.
     """
 
     async def on_bus_message(self, message: BusMessage) -> None:

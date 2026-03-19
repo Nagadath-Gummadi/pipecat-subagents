@@ -6,11 +6,8 @@
 
 """Bidirectional bus bridge for transport/session agent pipelines.
 
-Provides the ``BusBridgeProcessor``, a mid-pipeline processor that exchanges
-frames with other agents through the bus. Unlike the edge-to-bus mechanism used
-by child agents, the bridge is placed explicitly in a pipeline (typically a
-session/transport agent) and acts as a crossing point for both downstream and
-upstream frames.
+Provides the `BusBridgeProcessor`, a mid-pipeline processor that exchanges
+frames with other agents through the bus.
 """
 
 from typing import Optional, Tuple, Type
@@ -34,19 +31,11 @@ _PASSTHROUGH_FRAMES = (OutputTransportMessageUrgentFrame,)
 
 
 class BusBridgeProcessor(FrameProcessor, BusSubscriber):
-    """Bidirectional mid-pipeline bridge between a pipeline and the bus.
+    """Bidirectional mid-pipeline bridge between a Pipecat pipeline and the bus.
 
-    Placed in a transport/session agent's pipeline as an explicit crossing
-    point. Non-lifecycle frames are sent to the bus (not passed through
-    locally). Frames arriving from the bus are injected at this processor's
-    position.
-
-    Lifecycle and excluded frames are passed through the pipeline locally
-    without crossing the bus.
-
-    Use ``target_agent`` to restrict communication to a single agent.
-    Use ``exclude_frames`` to prevent specific frame types from crossing
-    the bus.
+    Placed in a transport or session agent's pipeline to exchange frames
+    with other agents via the `AgentBus`. Lifecycle and excluded frames
+    pass through locally without crossing the bus.
     """
 
     def __init__(
@@ -75,11 +64,7 @@ class BusBridgeProcessor(FrameProcessor, BusSubscriber):
         self._exclude_frames = exclude_frames or ()
 
     async def setup(self, setup: FrameProcessorSetup):
-        """Subscribe to the bus during processor setup.
-
-        Args:
-            setup: The processor setup configuration provided by the pipeline.
-        """
+        """Subscribe to the bus during processor setup."""
         await super().setup(setup)
         await self._bus.subscribe(self)
 
@@ -122,7 +107,7 @@ class BusBridgeProcessor(FrameProcessor, BusSubscriber):
         await self._bus.send(msg)
 
     async def on_bus_message(self, message: BusMessage) -> None:
-        """Handle incoming bus messages. Injects frames at bridge position.
+        """Handle an incoming bus message by pushing its frame into the pipeline.
 
         Args:
             message: The bus message to handle.

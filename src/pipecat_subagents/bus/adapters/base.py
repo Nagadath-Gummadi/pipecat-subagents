@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: BSD 2-Clause License
 #
 
-"""Abstract base class for type adapters."""
+"""Abstract base class for type adapters used by message serializers."""
 
 from abc import ABC, abstractmethod
 from typing import Any, Callable, Optional
@@ -14,12 +14,11 @@ DeserializeFunc = Callable[[Any], Any]
 
 
 class TypeAdapter(ABC):
-    """Serialize and deserialize instances of a specific type.
+    """Serialize and deserialize instances of a specific type for network transport.
 
-    Each adapter handles one or more types, converting them to/from
-    a JSON-compatible dict representation suitable for network transport.
-    Register adapters on a ``MessageSerializer`` to handle non-JSON-native
-    field values (e.g. ``LLMContext``, ``ToolsSchema``).
+    Each adapter handles one or more types, converting them to/from a
+    JSON-compatible dict. Register adapters on a ``JSONMessageSerializer``
+    to handle non-JSON-native field values (e.g. ``LLMContext``, ``ToolsSchema``).
 
     Adapters receive ``serialize_value`` and ``deserialize_value`` callbacks
     from the serializer so they can recursively serialize nested fields

@@ -95,10 +95,14 @@ class AgentRunner(BaseObject, BusSubscriber):
         return self._registry
 
     async def on_bus_message(self, message: BusMessage) -> None:
-        """Handle bus messages directed at the runner.
+        """Process incoming bus messages for runner-level concerns.
+
+        Handles end/cancel signals, dynamic agent addition, and remote
+        registry synchronization. Ignores messages originating from
+        this runner.
 
         Args:
-            message: The bus message to handle.
+            message: The bus message to process.
         """
         if message.source == self.name:
             return
@@ -185,7 +189,7 @@ class AgentRunner(BaseObject, BusSubscriber):
         """Immediately cancel all agents and shut down.
 
         Cancels root agents first; parent agents propagate cancellation
-        to their children automatically. Idempotent.subsequent calls
+        to their children automatically. Idempotent; subsequent calls
         are ignored.
 
         Args:

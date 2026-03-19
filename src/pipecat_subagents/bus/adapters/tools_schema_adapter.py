@@ -15,11 +15,7 @@ from pipecat_subagents.bus.adapters.base import DeserializeFunc, SerializeFunc, 
 
 
 class ToolsSchemaAdapter(TypeAdapter):
-    """Serialize and deserialize ``ToolsSchema`` instances.
-
-    Converts tools to their default dict representation using
-    ``FunctionSchema.to_default_dict()``.
-    """
+    """Serialize and deserialize ``ToolsSchema`` instances for network transport."""
 
     def serialize(self, obj: Any, serialize_value: SerializeFunc) -> dict[str, Any]:
         """Serialize a ``ToolsSchema`` to a JSON-compatible dict.

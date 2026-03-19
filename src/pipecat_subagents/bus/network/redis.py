@@ -46,14 +46,9 @@ class RedisConnection:
 class RedisBus(AgentBus):
     """Distributed agent bus backed by Redis pub/sub.
 
-    Messages are serialized via a `MessageSerializer` and published to a
-    Redis channel. Each subscriber gets its own Redis pub/sub subscription
-    and a local queue that receives messages from two sources:
-
-    - **Network messages**: deserialized from Redis pub/sub by a reader task.
-    - **Local messages**: `BusLocalMixin` messages (e.g. `BusAddAgentMessage`)
-      are delivered directly to local subscriber queues, bypassing Redis,
-      since they carry in-memory references that cannot be serialized.
+    Publishes serialized messages to a Redis channel for cross-process
+    communication. `BusLocalMixin` messages bypass Redis and are delivered
+    directly to local subscribers since they carry in-memory references.
 
     Requires the ``redis[hiredis]`` package (``redis.asyncio``).
 
@@ -92,8 +87,7 @@ class RedisBus(AgentBus):
         """Create a Redis pub/sub subscription for a subscriber.
 
         Returns:
-            A `RedisConnection` whose queue receives both network messages
-            (via the reader task) and local messages (put directly by `send()`).
+            A `RedisConnection` for receiving messages.
         """
         pubsub = self._redis.pubsub()
         await pubsub.subscribe(self._channel)
@@ -124,8 +118,8 @@ class RedisBus(AgentBus):
     async def send(self, message: BusMessage) -> None:
         """Send a message to all subscribers.
 
-        `BusLocalMixin` messages are delivered directly to local subscriber
-        queues. All other messages are published to the Redis channel.
+        ``BusLocalMixin`` messages are delivered directly to local
+        subscriber queues. All other messages are published to Redis.
 
         Args:
             message: The bus message to send.
@@ -144,7 +138,7 @@ class RedisBus(AgentBus):
             client: The `RedisConnection` returned by `connect()`.
 
         Returns:
-            The next `BusMessage` from either Redis or local delivery.
+            The next `BusMessage` available on this connection.
         """
         return await client.queue.get()
 

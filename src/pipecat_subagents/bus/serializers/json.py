@@ -41,7 +41,7 @@ class JSONMessageSerializer(MessageSerializer):
     """
 
     def __init__(self):
-        """Initialize the JSONMessageSerializer."""
+        """Create a serializer with default adapters for `LLMContext` and `ToolsSchema`."""
         from pipecat.adapters.schemas.tools_schema import ToolsSchema
         from pipecat.processors.aggregators.llm_context import LLMContext
 

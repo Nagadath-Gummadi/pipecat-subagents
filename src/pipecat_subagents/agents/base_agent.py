@@ -376,10 +376,11 @@ class BaseAgent(BaseObject, BusSubscriber):
         pass
 
     async def on_bus_message(self, message: BusMessage) -> None:
-        """Process an incoming bus message.
+        """Called for every bus message after built-in lifecycle handling.
 
-        Handles frame delivery, activation, end, and cancel messages.
-        Messages targeted at other agents are ignored.
+        Override to handle custom message types. Built-in message types
+        (activation, end, cancel, task) are already dispatched to their
+        respective hooks before this method is called.
 
         Args:
             message: The `BusMessage` to process.
@@ -433,7 +434,7 @@ class BaseAgent(BaseObject, BusSubscriber):
     async def create_pipeline(self, user_pipeline: Pipeline) -> Pipeline:
         """Assemble the final pipeline from the user pipeline.
 
-        This can be overriden to wrap the user pipeline with additional
+        This can be overridden to wrap the user pipeline with additional
         processors.
 
         Args:
@@ -541,14 +542,15 @@ class BaseAgent(BaseObject, BusSubscriber):
         *,
         args: Union[BaseModel, dict, None] = None,
     ) -> None:
-        """Activate an agent.
+        """Activate an agent by name.
 
-        Sends a ``BusActivateAgentMessage`` to the target agent.
+        The target agent's ``on_agent_activated`` hook will be called
+        with the provided arguments.
 
         Args:
             agent_name: The name of the agent to activate.
-            args: Optional arguments forwarded to the target agent.
-                Accepts a ``BaseModel``, a plain dict, or None.
+            args: Optional arguments forwarded to the target agent's
+                ``on_agent_activated``.
         """
         if isinstance(args, BaseModel):
             args = args.model_dump(exclude_none=True)
@@ -557,9 +559,9 @@ class BaseAgent(BaseObject, BusSubscriber):
         )
 
     async def deactivate_agent(self, agent_name: str) -> None:
-        """Deactivate an agent.
+        """Deactivate an agent by name.
 
-        Sends a ``BusDeactivateAgentMessage`` to the target agent.
+        The target agent's ``on_agent_deactivated`` hook will be called.
 
         Args:
             agent_name: The name of the agent to deactivate.
@@ -617,15 +619,14 @@ class BaseAgent(BaseObject, BusSubscriber):
     ) -> str:
         """Launch new task agents with a shared task_id.
 
-        Creates agents (via ``add_agent``), activates them, and sends
-        ``BusTaskRequestMessage`` to each.
+        Creates agents (via ``add_agent``), activates them, and sends a
+        task request to each.
 
         Args:
             *agents: One or more agent instances to launch as task workers.
             args: Optional activation arguments forwarded to each agent's
                 ``on_agent_activated``.
-            payload: Optional structured data describing the work, forwarded
-                via ``BusTaskRequestMessage``.
+            payload: Optional structured data describing the work.
             timeout: Optional timeout in seconds. If set, the task is
                 automatically cancelled after this duration.
 
@@ -651,8 +652,7 @@ class BaseAgent(BaseObject, BusSubscriber):
         """Send a task request to already-running agents.
 
         Unlike ``start_task``, this does not create or activate agents.
-        It sends ``BusTaskRequestMessage`` to agents that are already on
-        the bus.
+        Use this for agents that are already running on the bus.
 
         Args:
             *agent_names: Names of the agents to send the task to.
@@ -821,7 +821,7 @@ class BaseAgent(BaseObject, BusSubscriber):
         )
 
     async def send_task_stream_end(self, data: Optional[dict] = None) -> None:
-        """End the stream. Triggers group completion on the requester.
+        """End the current stream and mark this agent's task as complete.
 
         Args:
             data: Optional final metadata.

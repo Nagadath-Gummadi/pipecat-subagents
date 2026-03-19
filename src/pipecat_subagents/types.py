@@ -16,10 +16,10 @@ class TaskStatus(str, Enum):
     Inherits from ``str`` so values compare naturally with plain strings
     and serialize without extra handling.
 
-    Parameters:
+    Attributes:
         COMPLETED: The task finished successfully.
         CANCELLED: The task was cancelled by the requester.
-        FAILED: The task failed due to a logical/business error.
+        FAILED: The task failed due to a logical or business error.
         ERROR: The task encountered an unexpected runtime error.
     """
 

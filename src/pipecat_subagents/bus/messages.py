@@ -7,8 +7,7 @@
 """Bus message types for inter-agent communication.
 
 Defines the message hierarchy used by the `AgentBus` for pub/sub messaging
-between agents, the session, and the runner. Messages are dataclasses that
-extend Pipecat's `DataFrame` with source/target routing metadata.
+between agents, the session, and the runner.
 """
 
 from __future__ import annotations
@@ -54,12 +53,7 @@ class BusMessage(DataFrame):
 
 @dataclass
 class BusFrameMessage(BusMessage):
-    """Wraps any Pipecat Frame for transport over the bus.
-
-    This is the primary mechanism for moving pipeline frames (audio,
-    transcription, TTS output, control frames) between agents via the bus.
-    The wrapped frame is injected into the recipient's pipeline as-is,
-    preserving its original type for correct priority handling.
+    """Wraps a Pipecat `Frame` for transport over the bus.
 
     Parameters:
         frame: The Pipecat frame to transport.
@@ -74,9 +68,8 @@ class BusFrameMessage(BusMessage):
 class BusAgentRegistryMessage(BusMessage):
     """Snapshot of root agents managed by a runner.
 
-    Sent by the runner on startup to announce its root agents. When a
-    remote runner receives this, it responds with its own registry so
-    both sides discover each other's agents.
+    Sent by the runner on startup to announce its root agents so that
+    remote runners can discover each other's agents.
 
     Parameters:
         runner: Name of the runner that owns these agents.
@@ -109,9 +102,8 @@ class BusDeactivateAgentMessage(BusMessage):
 class BusCancelMessage(BusMessage):
     """Request a hard cancel of the session.
 
-    Sent by an agent to the runner (untargeted). The runner orchestrates
-    the cancellation by sending targeted `BusCancelAgentMessage` to each
-    agent.
+    Sent by an agent to the runner, which responds by sending
+    `BusCancelAgentMessage` to each agent.
 
     Parameters:
         reason: Optional human-readable reason for the cancellation.
@@ -137,8 +129,8 @@ class BusCancelAgentMessage(BusMessage):
 class BusEndMessage(BusMessage):
     """Request a graceful end of the session.
 
-    Sent by an agent to the runner (untargeted). The runner orchestrates
-    the shutdown by sending targeted `BusEndAgentMessage` to each agent.
+    Sent by an agent to the runner, which responds by sending
+    `BusEndAgentMessage` to each agent.
 
     Parameters:
         reason: Optional human-readable reason for ending.
@@ -151,8 +143,7 @@ class BusEndMessage(BusMessage):
 class BusEndAgentMessage(BusMessage):
     """Tells a targeted agent to end its pipeline gracefully.
 
-    Sent by the runner to individual agents during shutdown. The agent
-    queues an `EndFrame` to flush in-flight work before stopping.
+    Sent by the runner to individual agents during shutdown.
 
     Parameters:
         reason: Optional human-readable reason for ending.
@@ -165,7 +156,8 @@ class BusEndAgentMessage(BusMessage):
 class BusAddAgentMessage(BusMessage, BusLocalMixin):
     """Request to add an agent to the local runner.
 
-    Inherently local. Carries an in-memory agent reference.
+    Local-only: carries an in-memory agent reference that cannot be
+    serialized over the network.
 
     Parameters:
         agent: The agent instance to add.
@@ -178,8 +170,6 @@ class BusAddAgentMessage(BusMessage, BusLocalMixin):
 class BusClientConnectedMessage(BusMessage, BusLocalMixin):
     """A client connected to the transport.
 
-    Sent by the main agent, handled by the runner to emit on_client_connected.
-
     Parameters:
         client: The transport client that connected.
     """
@@ -191,8 +181,6 @@ class BusClientConnectedMessage(BusMessage, BusLocalMixin):
 class BusClientDisconnectedMessage(BusMessage, BusLocalMixin):
     """A client disconnected from the transport.
 
-    Sent by the main agent, handled by the runner to emit on_client_disconnected.
-
     Parameters:
         client: The transport client that disconnected.
     """
@@ -202,11 +190,7 @@ class BusClientDisconnectedMessage(BusMessage, BusLocalMixin):
 
 @dataclass
 class BusUserTurnStartedMessage(BusMessage):
-    """The user started speaking (turn boundary detected).
-
-    Sent by the session agent when its user aggregator detects a turn start.
-    Handled by the runner to emit on_user_turn_started.
-    """
+    """The user started speaking (turn boundary detected)."""
 
     pass
 
@@ -214,9 +198,6 @@ class BusUserTurnStartedMessage(BusMessage):
 @dataclass
 class BusUserTurnStoppedMessage(BusMessage):
     """The user stopped speaking (turn boundary detected).
-
-    Sent by the session agent when its user aggregator detects a turn boundary.
-    Handled by the runner to emit on_user_turn_stopped.
 
     Parameters:
         message: The turn-stopped message from the user aggregator.
@@ -227,19 +208,14 @@ class BusUserTurnStoppedMessage(BusMessage):
 
 @dataclass
 class BusAssistantTurnStartedMessage(BusMessage):
-    """The assistant started responding (LLM generation started).
-
-    Sent by the session agent when its assistant aggregator detects a turn start.
-    """
+    """The assistant started responding (LLM generation started)."""
 
     pass
 
 
 @dataclass
 class BusAssistantTurnStoppedMessage(BusMessage):
-    """The assistant finished responding (LLMFullResponseEndFrame processed).
-
-    Sent by the session agent when its assistant aggregator detects a turn end.
+    """The assistant finished responding (LLM generation completed).
 
     Parameters:
         message: The turn-stopped message from the assistant aggregator.
@@ -251,9 +227,6 @@ class BusAssistantTurnStoppedMessage(BusMessage):
 @dataclass
 class BusUserTranscriptMessage(BusMessage):
     """Carries a final user transcription text to agents.
-
-    Convenience message that agents can listen for directly instead of
-    filtering `BusFrameMessage` for `TranscriptionFrame`.
 
     Parameters:
         text: The transcribed text.
@@ -358,8 +331,6 @@ class BusTaskStreamDataMessage(BusMessage):
 @dataclass
 class BusTaskStreamEndMessage(BusMessage):
     """Signals the end of a streaming task response.
-
-    Triggers group completion tracking (same as BusTaskResponseMessage).
 
     Parameters:
         task_id: The task identifier.

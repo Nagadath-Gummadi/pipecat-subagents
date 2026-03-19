@@ -13,11 +13,7 @@ from pipecat_subagents.bus.messages import BusMessage
 
 
 class AsyncQueueBus(AgentBus):
-    """In-process bus that fans out messages via per-subscriber queues.
-
-    Each `connect()` call creates a new `asyncio.Queue`. `send()` puts
-    messages into every queue so each subscriber reads independently.
-    """
+    """In-process bus that delivers messages via per-subscriber `asyncio.Queue` instances."""
 
     def __init__(self, **kwargs):
         """Initialize the AsyncQueueBus.

@@ -23,10 +23,8 @@ from pipecat_subagents.bus.adapters.base import DeserializeFunc, SerializeFunc, 
 class LLMContextAdapter(TypeAdapter):
     """Serialize and deserialize ``LLMContext`` instances.
 
-    Converts the message list, tools, and tool_choice to JSON-safe
-    representations. The ``NOT_GIVEN`` sentinel is preserved by omitting
-    the key. On deserialization, missing keys are restored as
-    ``NOT_GIVEN``.
+    The ``NOT_GIVEN`` sentinel is preserved across serialization: missing
+    keys are restored as ``NOT_GIVEN`` on deserialization.
     """
 
     def serialize(self, obj: Any, serialize_value: SerializeFunc) -> dict[str, Any]:
