@@ -14,14 +14,13 @@ attached to a transport.
 
 from typing import Optional, Tuple, Type, Union
 
-from loguru import logger
 from pipecat.frames.frames import CancelFrame, EndFrame, Frame, StartFrame, StopFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor, FrameProcessorSetup
 from pydantic import BaseModel
 
 from pipecat_subagents.agents.base_agent import BaseAgent
-from pipecat_subagents.bus import AgentBus, BusActivateAgentMessage, BusMessage
+from pipecat_subagents.bus import AgentBus
 from pipecat_subagents.bus.messages import BusFrameMessage
 from pipecat_subagents.bus.subscriber import BusSubscriber
 
@@ -131,24 +130,26 @@ class DetachedAgent(BaseAgent):
     pipeline input.  Only the *active* detached agent receives bus frames.
 
     Use ``handoff_to()`` to transfer active state to another detached agent.
-    The active agent's ``on_agent_handoff(args)`` fires on each handoff.
+    Use ``activate_agent()`` and ``deactivate_agent()`` for independent control.
 
     Overridable lifecycle methods (always call ``super()``):
 
-    - ``on_agent_handoff(args)``: Called when this agent becomes active via a
-      handoff.
+    - ``on_agent_activated(args)``: Called when this agent is activated.
+    - ``on_agent_deactivated()``: Called when this agent is deactivated.
 
     Event handlers:
 
-    - on_agent_handoff(agent, args)
+    - on_agent_activated(agent, args)
+    - on_agent_deactivated(agent)
 
     Example::
 
         agent = MyDetachedAgent(name="llm", bus=bus)
 
-        @agent.event_handler("on_agent_handoff")
-        async def on_agent_handoff(agent, args):
-            logger.info(f"Agent became active with args: {args}")
+        @agent.event_handler("on_agent_activated")
+        async def on_agent_activated(agent, args):
+            await super().on_agent_activated(args)
+            logger.info(f"Agent activated with args: {args}")
     """
 
     def __init__(
@@ -165,39 +166,12 @@ class DetachedAgent(BaseAgent):
             name: Unique name for this agent.
             bus: The `AgentBus` for inter-agent communication.
             active: Whether the agent starts active (receiving bus frames).
-                When True, ``on_agent_handoff`` fires after the pipeline
-                starts. Defaults to False.
+                Defaults to False.
             exclude_frames: Frame types to exclude from bus forwarding.
                 Lifecycle frames are always excluded.
         """
-        super().__init__(name, bus=bus)
-        self._active = active
+        super().__init__(name, bus=bus, active=active)
         self._exclude_frames = exclude_frames
-        self._pending_handoff = active
-        self._handoff_args: Optional[dict] = None
-
-        self._register_event_handler("on_agent_handoff")
-
-    @property
-    def active(self) -> bool:
-        """Whether this agent is currently active (receiving bus frames)."""
-        return self._active
-
-    @property
-    def handoff_args(self) -> Optional[dict]:
-        """The most recent handoff arguments, if any."""
-        return self._handoff_args
-
-    async def on_agent_handoff(self, args: Optional[dict]) -> None:
-        """Called when this agent becomes active via a handoff.
-
-        Override in subclasses to react to handoff (e.g. set tools,
-        append messages). Always call ``super().on_agent_handoff(args)``.
-
-        Args:
-            args: Optional handoff arguments from the caller.
-        """
-        pass
 
     async def handoff_to(
         self,
@@ -207,46 +181,21 @@ class DetachedAgent(BaseAgent):
     ) -> None:
         """Hand off to another agent.
 
-        If this agent is active, it deactivates first. The target agent
-        becomes active and receives ``on_agent_handoff(args)``.
+        Convenience method that deactivates this agent and activates the
+        target. For independent activate/deactivate control, use
+        ``activate_agent()`` and ``deactivate_agent()`` directly.
 
         Args:
             agent_name: The name of the agent to hand off to.
             args: Optional arguments forwarded to the target agent's
-                ``on_agent_handoff`` handler. Accepts a ``BaseModel``
+                ``on_agent_activated`` handler. Accepts a ``BaseModel``
                 (e.g. ``LLMActivationArgs``), a plain dict, or None.
         """
         if self._active:
-            await self._deactivate()
-        if isinstance(args, BaseModel):
-            args = args.model_dump(exclude_none=True)
-        await self.send_message(
-            BusActivateAgentMessage(source=self.name, target=agent_name, args=args)
-        )
+            self._active = False
+        await self.activate_agent(agent_name, args=args)
 
-    async def on_bus_message(self, message: BusMessage) -> None:
-        """Process an incoming bus message.
-
-        Handles activation messages for this agent and delegates
-        everything else to ``BaseAgent``.
-
-        Args:
-            message: The `BusMessage` to process.
-        """
-        if isinstance(message, BusFrameMessage):
-            return
-
-        if message.target and message.target != self.name:
-            return
-
-        if isinstance(message, BusActivateAgentMessage):
-            await self._handle_agent_activate(message)
-            await self._call_event_handler("on_bus_message", message)
-            return
-
-        await super().on_bus_message(message)
-
-    async def _assemble_pipeline(self, user_pipeline: Pipeline) -> Pipeline:
+    async def create_pipeline(self, user_pipeline: Pipeline) -> Pipeline:
         """Wrap the user pipeline with bus edge processors.
 
         Args:
@@ -270,34 +219,3 @@ class DetachedAgent(BaseAgent):
             name=f"{self.name}::EdgeSink",
         )
         return Pipeline([edge_source, user_pipeline, edge_sink])
-
-    async def _on_pipeline_started(self) -> None:
-        """Trigger pending handoff after pipeline starts."""
-        await self._maybe_handoff()
-
-    async def _handle_agent_activate(self, message: BusActivateAgentMessage) -> None:
-        """Handle a handoff message.
-
-        Stores the handoff arguments and marks the agent as pending
-        handoff, then delegates to ``_maybe_handoff()``.
-
-        Args:
-            message: The ``BusActivateAgentMessage`` requesting handoff.
-        """
-        self._handoff_args = message.args
-        self._pending_handoff = True
-        await self._maybe_handoff()
-
-    async def _deactivate(self) -> None:
-        """Deactivate so this agent stops receiving bus frames."""
-        logger.debug(f"Agent '{self}': deactivated")
-        self._active = False
-
-    async def _maybe_handoff(self) -> None:
-        """Activate the agent if pipeline is started and handoff is pending."""
-        if self._pipeline_started and self._pending_handoff:
-            logger.debug(f"Agent '{self}': activated")
-            self._active = True
-            self._pending_handoff = False
-            await self.on_agent_handoff(self._handoff_args)
-            await self._call_event_handler("on_agent_handoff", self._handoff_args)

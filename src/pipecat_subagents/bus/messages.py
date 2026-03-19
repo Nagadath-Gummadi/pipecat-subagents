@@ -99,6 +99,13 @@ class BusActivateAgentMessage(BusMessage):
 
 
 @dataclass
+class BusDeactivateAgentMessage(BusMessage):
+    """Tells a targeted agent to become inactive and stop processing."""
+
+    pass
+
+
+@dataclass
 class BusCancelMessage(BusMessage):
     """Request a hard cancel of the session.
 
@@ -158,7 +165,7 @@ class BusEndAgentMessage(BusMessage):
 class BusAddAgentMessage(BusMessage, BusLocalMixin):
     """Request to add an agent to the local runner.
 
-    Inherently local — carries an in-memory agent reference.
+    Inherently local. Carries an in-memory agent reference.
 
     Parameters:
         agent: The agent instance to add.

@@ -36,6 +36,7 @@ from pipecat_subagents.bus import (
     BusAddAgentMessage,
     BusCancelAgentMessage,
     BusCancelMessage,
+    BusDeactivateAgentMessage,
     BusEndAgentMessage,
     BusEndMessage,
     BusMessage,
@@ -62,7 +63,6 @@ class ActivationArgs(BaseModel, extra="ignore"):
     """
 
     metadata: Optional[dict] = None
-
 
 
 @dataclass
@@ -145,15 +145,18 @@ class BaseAgent(BaseObject, BusSubscriber):
         name: str,
         *,
         bus: AgentBus,
+        active: bool = True,
     ):
         """Initialize the BaseAgent.
 
         Args:
             name: Unique name for this agent.
             bus: The `AgentBus` for inter-agent communication.
+            active: Whether the agent starts active. Defaults to True.
         """
         super().__init__(name=name)
         self._bus = bus
+        self._active = active
         self._parent: Optional[str] = None
         self._task: Optional[PipelineTask] = None
         self._children: list["BaseAgent"] = []
@@ -169,6 +172,8 @@ class BaseAgent(BaseObject, BusSubscriber):
 
         self._register_event_handler("on_agent_started")
         self._register_event_handler("on_agent_ready")
+        self._register_event_handler("on_agent_activated")
+        self._register_event_handler("on_agent_deactivated")
         self._register_event_handler("on_bus_message")
         self._register_event_handler("on_task_request")
         self._register_event_handler("on_task_response")
@@ -184,6 +189,11 @@ class BaseAgent(BaseObject, BusSubscriber):
     def bus(self) -> AgentBus:
         """The bus instance for agent communication."""
         return self._bus
+
+    @property
+    def active(self) -> bool:
+        """Whether this agent is currently active."""
+        return self._active
 
     @property
     def parent(self) -> Optional[str]:
@@ -226,6 +236,25 @@ class BaseAgent(BaseObject, BusSubscriber):
 
     async def on_agent_started(self) -> None:
         """Called once when the agent's pipeline is ready."""
+        pass
+
+    async def on_agent_activated(self, args: Optional[dict]) -> None:
+        """Called when this agent is activated.
+
+        Override in subclasses to react to activation.
+        Always call ``super().on_agent_activated(args)``.
+
+        Args:
+            args: Optional arguments from the caller.
+        """
+        pass
+
+    async def on_agent_deactivated(self) -> None:
+        """Called when this agent is deactivated.
+
+        Override in subclasses to react to deactivation.
+        Always call ``super().on_agent_deactivated()``.
+        """
         pass
 
     async def on_agent_ready(self, agent_info: RegisteredAgentData) -> None:
@@ -363,7 +392,11 @@ class BaseAgent(BaseObject, BusSubscriber):
         if message.target and message.target != self.name:
             return
 
-        if isinstance(message, BusEndAgentMessage):
+        if isinstance(message, BusActivateAgentMessage):
+            await self._handle_agent_activate(message)
+        elif isinstance(message, BusDeactivateAgentMessage):
+            await self._handle_agent_deactivate(message)
+        elif isinstance(message, BusEndAgentMessage):
             await self._handle_agent_end(message)
         elif isinstance(message, BusCancelAgentMessage):
             await self._handle_agent_cancel(message)
@@ -397,6 +430,21 @@ class BaseAgent(BaseObject, BusSubscriber):
         """
         pass
 
+    async def create_pipeline(self, user_pipeline: Pipeline) -> Pipeline:
+        """Assemble the final pipeline from the user pipeline.
+
+        This can be overriden to wrap the user pipeline with additional
+        processors.
+
+        Args:
+            user_pipeline: The pipeline returned by ``build_pipeline()``.
+
+        Returns:
+            The assembled ``Pipeline``.
+
+        """
+        return user_pipeline
+
     def build_pipeline_task(self, pipeline: Pipeline) -> PipelineTask:
         """Create the ``PipelineTask`` for this agent's pipeline.
 
@@ -428,7 +476,7 @@ class BaseAgent(BaseObject, BusSubscriber):
         await self._bus.subscribe(self)
 
         user_pipeline = await self.build_pipeline()
-        pipeline = await self._assemble_pipeline(user_pipeline)
+        pipeline = await self.create_pipeline(user_pipeline)
 
         task = self.build_pipeline_task(pipeline)
         self._task = task
@@ -440,13 +488,13 @@ class BaseAgent(BaseObject, BusSubscriber):
             await self.on_agent_started()
             await self._call_event_handler("on_agent_started")
             await self._register_ready()
-            await self._on_pipeline_started()
 
         @task.event_handler("on_pipeline_finished")
         async def on_pipeline_finished(task, frame):
             logger.debug(f"Agent '{self}': pipeline finished ({frame})")
             if isinstance(frame, CancelFrame):
                 await self.cancel()
+            self._finished.set()
 
         return task
 
@@ -461,6 +509,10 @@ class BaseAgent(BaseObject, BusSubscriber):
     async def cancel(self) -> None:
         """Request an immediate cancellation of all agents."""
         await self.send_message(BusCancelMessage(source=self.name))
+
+    async def wait(self) -> None:
+        """Wait for this agent's pipeline to finish."""
+        await self._finished.wait()
 
     async def add_agent(self, agent: "BaseAgent") -> None:
         """Register a child agent under this parent.
@@ -483,41 +535,37 @@ class BaseAgent(BaseObject, BusSubscriber):
             self._registry.watch(agent.name, self._on_watched_agent_ready)
         await self.send_message(BusAddAgentMessage(source=self.name, agent=agent))
 
-    async def wait(self) -> None:
-        """Wait for this agent's pipeline to finish."""
-        await self._finished.wait()
-
-    def notify_finished(self) -> None:
-        """Signal that this agent's pipeline has finished."""
-        self._finished.set()
-
     async def activate_agent(
         self,
         agent_name: str,
         *,
         args: Union[BaseModel, dict, None] = None,
     ) -> None:
-        """Activate a detached agent.
+        """Activate an agent.
 
-        Sends a ``BusActivateAgentMessage`` to the target agent, which
-        triggers ``on_agent_handoff(args)`` on the target. This is a
-        convenience method for triggering the first handoff from a
-        non-detached agent (e.g. a transport agent).
-
-        For transferring between detached agents, use
-        ``DetachedAgent.handoff_to()`` instead — it also deactivates the
-        calling agent.
+        Sends a ``BusActivateAgentMessage`` to the target agent.
 
         Args:
             agent_name: The name of the agent to activate.
-            args: Optional arguments forwarded to the target agent's
-                ``on_agent_handoff`` handler. Accepts a ``BaseModel``,
-                a plain dict, or None.
+            args: Optional arguments forwarded to the target agent.
+                Accepts a ``BaseModel``, a plain dict, or None.
         """
         if isinstance(args, BaseModel):
             args = args.model_dump(exclude_none=True)
         await self.send_message(
             BusActivateAgentMessage(source=self.name, target=agent_name, args=args)
+        )
+
+    async def deactivate_agent(self, agent_name: str) -> None:
+        """Deactivate an agent.
+
+        Sends a ``BusDeactivateAgentMessage`` to the target agent.
+
+        Args:
+            agent_name: The name of the agent to deactivate.
+        """
+        await self.send_message(
+            BusDeactivateAgentMessage(source=self.name, target=agent_name)
         )
 
     async def watch_agent(self, agent_name: str) -> None:
@@ -559,29 +607,6 @@ class BaseAgent(BaseObject, BusSubscriber):
         await self.on_agent_ready(agent_data)
         await self._call_event_handler("on_agent_ready", agent_data)
 
-    async def _on_pipeline_started(self) -> None:
-        """Hook called after pipeline starts and agent is registered.
-
-        Subclasses can override to perform additional initialization
-        after the pipeline is running. ``DetachedAgent`` uses this to
-        trigger pending handoffs.
-        """
-        pass
-
-    async def _assemble_pipeline(self, user_pipeline: Pipeline) -> Pipeline:
-        """Assemble the final pipeline from the user pipeline.
-
-        ``DetachedAgent`` overrides this to wrap the user pipeline with
-        bus edge processors.
-
-        Args:
-            user_pipeline: The pipeline returned by ``build_pipeline()``.
-
-        Returns:
-            The assembled ``Pipeline``.
-        """
-        return Pipeline([user_pipeline])
-
     async def start_task(
         self,
         *agents: "BaseAgent",
@@ -597,7 +622,7 @@ class BaseAgent(BaseObject, BusSubscriber):
         Args:
             *agents: One or more agent instances to launch as task workers.
             args: Optional activation arguments forwarded to each agent's
-                ``on_agent_handoff``.
+                ``on_agent_activated``.
             payload: Optional structured data describing the work, forwarded
                 via ``BusTaskRequestMessage``.
             timeout: Optional timeout in seconds. If set, the task is
@@ -624,8 +649,8 @@ class BaseAgent(BaseObject, BusSubscriber):
     ) -> str:
         """Send a task request to already-running agents.
 
-        Unlike ``start_task``, this does not create or activate agents —
-        it sends ``BusTaskRequestMessage`` to agents that are already on
+        Unlike ``start_task``, this does not create or activate agents.
+        It sends ``BusTaskRequestMessage`` to agents that are already on
         the bus.
 
         Args:
@@ -848,6 +873,28 @@ class BaseAgent(BaseObject, BusSubscriber):
         if self._task:
             await self._task.queue_frames(frames, direction)
 
+    async def _handle_agent_activate(self, message: BusActivateAgentMessage) -> None:
+        """Activate this agent.
+
+        Args:
+            message: The ``BusActivateAgentMessage`` requesting activation.
+        """
+        logger.debug(f"Agent '{self}': activated")
+        self._active = True
+        await self.on_agent_activated(message.args)
+        await self._call_event_handler("on_agent_activated", message.args)
+
+    async def _handle_agent_deactivate(self, message: BusDeactivateAgentMessage) -> None:
+        """Deactivate this agent.
+
+        Args:
+            message: The ``BusDeactivateAgentMessage`` requesting deactivation.
+        """
+        logger.debug(f"Agent '{self}': deactivated")
+        self._active = False
+        await self.on_agent_deactivated()
+        await self._call_event_handler("on_agent_deactivated")
+
     async def _handle_agent_end(self, message: BusEndAgentMessage) -> None:
         """Propagate end to children, wait for them, then end own pipeline.
 
@@ -919,7 +966,7 @@ class BaseAgent(BaseObject, BusSubscriber):
         Calls the ``on_task_cancelled`` hook for cleanup, then
         automatically sends a cancelled response back to the requester.
         The requester receives ``on_task_response`` with
-        ``status="cancelled"`` — same path as completed or failed tasks.
+        ``status="cancelled"``, same path as completed or failed tasks.
         """
         if self._task_id == message.task_id:
             await self.on_task_cancelled(message.task_id, message.reason)
@@ -961,4 +1008,3 @@ class BaseAgent(BaseObject, BusSubscriber):
                 del self._task_groups[task_id]
                 await self.on_task_completed(task_id, group.responses)
                 await self._call_event_handler("on_task_completed", task_id, group.responses)
-

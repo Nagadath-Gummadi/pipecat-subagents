@@ -35,7 +35,7 @@ class AgentRunner(BaseObject, BusSubscriber):
 
     Manages agent pipelines, coordinates startup and shutdown, and
     responds to bus messages. On graceful end, root agents are ended
-    first — parent agents propagate shutdown to their children.
+    first; parent agents propagate shutdown to their children.
 
     Event handlers:
 
@@ -160,7 +160,7 @@ class AgentRunner(BaseObject, BusSubscriber):
         """Gracefully end all agents and shut down.
 
         Ends root agents first; parent agents propagate shutdown to
-        their children automatically. Idempotent — subsequent calls
+        their children automatically. Idempotent; subsequent calls
         are ignored.
 
         Args:
@@ -180,7 +180,7 @@ class AgentRunner(BaseObject, BusSubscriber):
         """Immediately cancel all agents and shut down.
 
         Cancels root agents first; parent agents propagate cancellation
-        to their children automatically. Idempotent — subsequent calls
+        to their children automatically. Idempotent.subsequent calls
         are ignored.
 
         Args:
@@ -219,12 +219,9 @@ class AgentRunner(BaseObject, BusSubscriber):
         await asyncio.sleep(0)
 
     def _on_agent_task_done(self, task: asyncio.Task) -> None:
-        """Remove a completed agent task and signal its finished event."""
+        """Remove a completed agent task."""
         name = task.get_name().removeprefix("agent_")
         self._running_agent_tasks.pop(name, None)
-        agent = self._agents.get(name)
-        if agent:
-            agent.notify_finished()
 
     async def _on_agent_ready(self, agent_data: RegisteredAgentData) -> None:
         """Called when a local agent registers as ready.
@@ -239,7 +236,7 @@ class AgentRunner(BaseObject, BusSubscriber):
 
         agent = self._agents.get(agent_data.agent_name)
         if not agent or agent.parent is not None:
-            # Child agent — parent handles it via its own watch
+            # Child agent: parent handles it via its own watch
             return
 
         # Root agent: broadcast to all local agents

@@ -51,6 +51,10 @@ class StubAgent(BaseAgent):
     async def build_pipeline(self) -> Pipeline:
         return Pipeline([IdentityFilter()])
 
+    def set_finished(self):
+        """Simulate pipeline completion for testing."""
+        self._finished.set()
+
 
 class DetachedStubAgent(DetachedAgent):
     """Minimal DetachedAgent subclass for testing."""
@@ -87,7 +91,7 @@ class TestBaseAgentLifecycle(unittest.IsolatedAsyncioTestCase):
         handoff_done = asyncio.Event()
         handoff_args_received = []
 
-        @agent.event_handler("on_agent_handoff")
+        @agent.event_handler("on_agent_activated")
         async def on_handoff(agent, args):
             handoff_args_received.append(args)
             handoff_done.set()
@@ -111,21 +115,22 @@ class TestBaseAgentLifecycle(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(handoff_args_received), 1)
         self.assertIs(handoff_args_received[0], args)
 
-    async def test_active_true_triggers_handoff_after_pipeline_start(self):
-        """active=True triggers on_agent_handoff after pipeline starts."""
+    async def test_active_true_starts_active(self):
+        """active=True means the agent starts active without on_agent_activated."""
         bus = AsyncQueueBus()
         agent = DetachedStubAgent("test", bus=bus, active=True)
 
-        handoff_done = asyncio.Event()
+        handoff_fired = False
 
-        @agent.event_handler("on_agent_handoff")
+        @agent.event_handler("on_agent_activated")
         async def on_handoff(agent, args):
-            handoff_done.set()
+            nonlocal handoff_fired
+            handoff_fired = True
 
         task = await agent.create_pipeline_task()
 
         async def wait_and_end():
-            await asyncio.wait_for(handoff_done.wait(), timeout=2.0)
+            await asyncio.sleep(0.05)
             await task.queue_frame(EndFrame())
 
         await bus.start()
@@ -134,6 +139,7 @@ class TestBaseAgentLifecycle(unittest.IsolatedAsyncioTestCase):
         await bus.stop()
 
         self.assertTrue(agent.active)
+        self.assertFalse(handoff_fired)
 
     async def test_handoff_to_sends_activate_and_deactivates(self):
         """handoff_to() sends BusActivateAgentMessage and deactivates self."""
@@ -341,7 +347,7 @@ class TestBaseAgentLifecycle(unittest.IsolatedAsyncioTestCase):
 
         handoff_done = asyncio.Event()
 
-        @agent.event_handler("on_agent_handoff")
+        @agent.event_handler("on_agent_activated")
         async def on_handoff(agent, args):
             handoff_done.set()
 
@@ -386,8 +392,8 @@ class TestBaseAgentLifecycle(unittest.IsolatedAsyncioTestCase):
         await parent.add_agent(child_b)
 
         # Pre-set children as finished so gather returns immediately
-        child_a.notify_finished()
-        child_b.notify_finished()
+        child_a.set_finished()
+        child_b.set_finished()
 
         await parent.on_bus_message(
             BusEndAgentMessage(source="runner", target="parent", reason="shutdown")
@@ -412,7 +418,7 @@ class TestBaseAgentLifecycle(unittest.IsolatedAsyncioTestCase):
         async def delayed_child_finish():
             await asyncio.sleep(0.1)
             order.append("child_finished")
-            child.notify_finished()
+            child.set_finished()
 
         async def send_end():
             await asyncio.sleep(0.05)
