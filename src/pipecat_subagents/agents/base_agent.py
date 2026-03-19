@@ -20,6 +20,7 @@ from loguru import logger
 from pipecat.frames.frames import (
     CancelFrame,
     EndFrame,
+    ErrorFrame,
     Frame,
     StartFrame,
 )
@@ -175,6 +176,7 @@ class BaseAgent(BaseObject, BusSubscriber):
         self._task_groups: dict[str, TaskGroup] = {}
 
         self._register_event_handler("on_started")
+        self._register_event_handler("on_error")
         self._register_event_handler("on_agent_ready")
         self._register_event_handler("on_activated")
         self._register_event_handler("on_deactivated")
@@ -240,6 +242,18 @@ class BaseAgent(BaseObject, BusSubscriber):
 
     async def on_started(self) -> None:
         """Called once when the agent is ready."""
+        pass
+
+    async def on_error(self, error: str, fatal: bool) -> None:
+        """Called when a pipeline error occurs.
+
+        Override to handle errors (e.g. propagate via ``send_error()``,
+        fail a running task, or log and recover).
+
+        Args:
+            error: Description of the error.
+            fatal: Whether the error is unrecoverable.
+        """
         pass
 
     async def on_activated(self, args: Optional[dict]) -> None:
@@ -494,6 +508,12 @@ class BaseAgent(BaseObject, BusSubscriber):
             logger.debug(f"Agent '{self}': pipeline started")
             self._pipeline_started = True
             await self._start()
+
+        @task.event_handler("on_pipeline_error")
+        async def on_pipeline_error(task, frame: ErrorFrame):
+            logger.error(f"Agent '{self}': pipeline error: {frame.error}")
+            await self.on_error(frame.error, frame.fatal)
+            await self._call_event_handler("on_error", frame.error, frame.fatal)
 
         @task.event_handler("on_pipeline_finished")
         async def on_pipeline_finished(task, frame):
