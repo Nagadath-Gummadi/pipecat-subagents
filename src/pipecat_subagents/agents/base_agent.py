@@ -175,9 +175,9 @@ class BaseAgent(BaseObject, BusSubscriber):
         # Task state (as requester)
         self._task_groups: dict[str, TaskGroup] = {}
 
+        # This agent's lifecycle
         self._register_event_handler("on_started")
         self._register_event_handler("on_error")
-        self._register_event_handler("on_agent_ready")
         self._register_event_handler("on_activated")
         self._register_event_handler("on_deactivated")
         self._register_event_handler("on_bus_message")
@@ -190,6 +190,9 @@ class BaseAgent(BaseObject, BusSubscriber):
         self._register_event_handler("on_task_stream_data")
         self._register_event_handler("on_task_stream_end")
         self._register_event_handler("on_task_cancelled")
+
+        # Other agents
+        self._register_event_handler("on_agent_ready")
 
     @property
     def bus(self) -> AgentBus:
