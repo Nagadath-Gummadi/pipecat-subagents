@@ -92,7 +92,7 @@ The registry tracks which agents are ready. When a **root agent** (added via `Ag
 
 ### Agents
 
-Agents are the building blocks of a multi-agent system. Each agent wraps a Pipecat pipeline and connects to the bus, where it can exchange frames and messages with other agents. Agents can launch subagents, activate or deactivate each other, and coordinate work through tasks.
+Agents are the building blocks of a multi-agent system. Each agent connects to the bus and typically runs a Pipecat pipeline, exchanging frames and messages with other agents. Agents can also operate without a pipeline for lightweight coordination (e.g. task routing, agent factories). Agents can launch subagents, activate or deactivate each other, and coordinate work through tasks.
 
 | Class                | Use when                                                                                                                                                                                |
 |----------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
