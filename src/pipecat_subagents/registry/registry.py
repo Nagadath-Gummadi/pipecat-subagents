@@ -17,7 +17,7 @@ WatchHandler = Callable[[RegisteredAgentData], Coroutine]
 
 
 class AgentRegistry:
-    """Single source of truth for all known agents (local and remote).
+    """Tracks all known agents across local and remote runners.
 
     Owned by a runner and shared with its agents. Organizes agents into
     local (this runner) and remote (other runners) so they are easy to
@@ -27,12 +27,14 @@ class AgentRegistry:
     Notifications use a targeted watch mechanism: call
     ``watch(agent_name, handler)`` to be notified when a specific agent
     registers.
-
-    Args:
-        runner_name: Name of the runner that owns this registry.
     """
 
     def __init__(self, runner_name: str):
+        """Initialize the AgentRegistry.
+
+        Args:
+            runner_name: Name of the runner that owns this registry.
+        """
         self._runner_name = runner_name
         self._local_agents: dict[str, RegisteredAgentData] = {}
         self._remote_runners: dict[str, dict[str, RegisteredAgentData]] = defaultdict(dict)
@@ -57,7 +59,14 @@ class AgentRegistry:
         return result
 
     def get(self, agent_name: str) -> Optional[RegisteredAgentData]:
-        """Look up a registered agent by name."""
+        """Look up a registered agent by name.
+
+        Args:
+            agent_name: The agent name to look up.
+
+        Returns:
+            The agent's ``RegisteredAgentData``, or None if not found.
+        """
         if agent_name in self._local_agents:
             return self._local_agents[agent_name]
         for agents in self._remote_runners.values():
@@ -96,7 +105,7 @@ class AgentRegistry:
             return False
 
         target[agent_data.agent_name] = agent_data
-        locality = "local" if is_local else f"remote ({agent_data.runner})"
+        locality = "local" if is_local else agent_data.runner
         logger.debug(f"Agent '{agent_data.agent_name}' ready ({locality})")
         await self._notify(agent_data)
         return True
