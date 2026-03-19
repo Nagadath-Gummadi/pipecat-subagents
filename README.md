@@ -47,37 +47,40 @@ Agents communicate through a shared **AgentBus**. The diagram below shows a comm
 
 ### Bus
 
-Pub/sub communication between agents and the runner.
+Agents communicate through a shared bus using pub/sub messaging. Place a `BusBridgeProcessor` in a pipeline to exchange frames with other agents across the bus.
 
-- **`AgentBus`**: Abstract base for inter-agent messaging.
-- **`BusBridgeProcessor`**: Mid-pipeline processor that bridges frames across agent boundaries. Non-lifecycle frames go to the bus; bus frames are injected at the bridge position.
+| Class | Description |
+|---|---|
+| `AgentBus` | Abstract base for inter-agent messaging. |
+| `AsyncQueueBus` | In-process bus backed by `asyncio.Queue`s. No serialization overhead. This is the default bus created by `AgentRunner`. |
+| `RedisBus` | Distributed bus backed by Redis pub/sub for cross-process communication. |
+| `JSONMessageSerializer` | Default serializer for network buses. Register a `FrameAdapter` per frame type to handle Pipecat frame serialization. |
 
-#### Local buses
+#### Bridge
 
-In-process buses for agents running in the same Python process.
+The `BusBridgeProcessor` is a Pipecat pipeline processor placed in an agent's pipeline (typically a transport/session agent) where an LLM would normally go. It sends non-lifecycle frames to the bus and injects incoming bus frames at its position, connecting the pipeline to whichever agent is active on the bus.
 
-- **`AsyncQueueBus`**: Fan-out bus backed by per-subscriber `asyncio.Queue`s. No serialization overhead; messages are passed as Python objects. This is the default bus created by `AgentRunner`.
-
-#### Network buses
-
-Distributed buses for agents running across separate processes or machines. Network buses require a `MessageSerializer` to convert messages to/from bytes. Frame payloads inside `BusFrameMessage` are handled by pluggable `FrameAdapter`s registered on the serializer.
-
-- **`RedisBus`**: Bus backed by Redis pub/sub. Each subscriber gets its own Redis subscription. Messages marked with `BusLocalMixin` (e.g. `BusAddAgentMessage`) are silently skipped since they carry in-memory references.
-- **`JSONMessageSerializer`**: Default serializer that encodes messages as JSON. Register a `FrameAdapter` per frame type to handle serialization of Pipecat frames.
+| Class | Description |
+|---|---|
+| `BusBridgeProcessor` | Mid-pipeline processor that bridges frames between a pipeline and the bus. |
 
 ### Runner
 
-- **`AgentRunner`**: Orchestrates agent lifecycle, creates pipeline tasks, and coordinates shutdown. Agents can be added dynamically at runtime.
+The runner orchestrates the system: it creates pipeline tasks, manages agent lifecycle, and coordinates shutdown. Agents can be added dynamically at runtime.
+
+| Class         | Description                                                                                         |
+|---------------|-----------------------------------------------------------------------------------------------------|
+| `AgentRunner` | Entry point for running a multi-agent system. Owns the bus (or accepts one) and the agent registry. |
 
 ### Registry
 
-- **`AgentRegistry`**: Tracks which agents are ready. Owned by the runner and shared with its agents.
+The registry tracks which agents are ready. When a **root agent** (added via `AgentRunner.add_agent()`) becomes ready, the runner announces it to all other local agents via `on_agent_ready()`. In distributed setups, root agents are also announced to remote runners over the network bus.
 
-When a **root agent** (added directly to the runner via `AgentRunner.add_agent()`) becomes ready, the runner announces it to all other local agents via `on_agent_ready()`. In distributed setups, root agents are also announced to remote runners over the network bus, so agents on different machines can discover each other.
+**Child agents** (added via `BaseAgent.add_agent()`) are not broadcast. Only the parent is notified when a child is ready. Other agents can opt in via `watch_agent(name)`.
 
-**Child agents** (added to a parent via `BaseAgent.add_agent()`) are not broadcast. The runner does not announce them to other local agents or remote runners. The parent is automatically notified when a child is ready, and other agents can opt in via `watch_agent(name)`.
-
-Use `watch_agent(name)` to request notification when a specific agent registers. Useful for waiting on remote agents whose startup order is unpredictable.
+| Class           | Description                                                                             |
+|-----------------|-----------------------------------------------------------------------------------------|
+| `AgentRegistry` | Tracks ready agents (local and remote). Owned by the runner and shared with its agents. |
 
 ### Agents
 
