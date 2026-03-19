@@ -101,14 +101,23 @@ Agents are the building blocks of a multi-agent system. Each agent connects to t
 | `LLMDetachedAgent`   | Your detached agent needs an LLM. Adds `build_llm()`, `@tool` registration, and message injection on activation.                                                                        |
 | `FlowsDetachedAgent` | Your detached agent needs structured conversation flows via [Pipecat Flows](https://github.com/pipecat-ai/pipecat-flows).                                                               |
 
-#### Lifecycle hooks
+#### Agent lifecycle
 
-| Hook | When it fires |
-|---|---|
-| `on_started()` | Agent is ready. Add child agents here. |
-| `on_activated(args)` | Agent is activated via `activate_agent()`. |
-| `on_deactivated()` | Agent is deactivated via `deactivate_agent()`. |
-| `on_agent_ready()` | Another agent is ready to receive messages. |
+Hooks about this agent's own state.
+
+| Hook                 | When it fires                                  |
+|----------------------|------------------------------------------------|
+| `on_started()`       | Agent is ready. Add child agents here.         |
+| `on_activated(args)` | Agent is activated via `activate_agent()`.     |
+| `on_deactivated()`   | Agent is deactivated via `deactivate_agent()`. |
+
+#### Other agent events
+
+Hooks about other agents in the system.
+
+| Hook                         | When it fires                               |
+|------------------------------|---------------------------------------------|
+| `on_agent_ready(agent_info)` | Another agent is ready to receive messages. |
 
 ### Tasks
 
