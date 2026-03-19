@@ -4,7 +4,7 @@
 
 [![PyPI](https://img.shields.io/pypi/v/pipecat-ai-subagents)](https://pypi.org/project/pipecat-ai-subagents) ![Tests](https://github.com/pipecat-ai/pipecat-subagents/actions/workflows/tests.yaml/badge.svg) [![codecov](https://codecov.io/gh/pipecat-ai/pipecat-subagents/graph/badge.svg?token=LNVUIVO4Y9)](https://codecov.io/gh/pipecat-ai/pipecat-subagents) [![Docs](https://img.shields.io/badge/Documentation-blue)](https://docs.pipecat.ai/guides/features/pipecat-subagents) [![Discord](https://img.shields.io/discord/1239284677165056021)](https://discord.gg/pipecat)
 
-Pipecat Subgents is a distributed multi-agent framework for [Pipecat](https://github.com/pipecat-ai/pipecat/tree/main#readme). Each agent runs its own Pipecat pipeline and communicates with other agents through a shared message bus, enabling you to decompose complex systems into specialized, coordinating agents that can run locally or across machines.
+Pipecat Subagents is a distributed multi-agent framework for [Pipecat](https://github.com/pipecat-ai/pipecat/tree/main#readme). Each agent runs its own Pipecat pipeline and communicates with other agents through a shared message bus, enabling you to decompose complex systems into specialized, coordinating agents that can run locally or across machines.
 
 Whether local or distributed, the programming model is the same: create an `AgentRunner`, connect it to the bus, and add agents.
 
@@ -45,23 +45,6 @@ Agents communicate through a shared **AgentBus**. The diagram below shows a comm
 
 ## Key Concepts
 
-### Agents
-
-Each agent runs its own Pipecat pipeline and communicates via the bus.
-
-- **`BaseAgent`**: Abstract base. Handles bus subscription, pipeline lifecycle, parent-child relationships, activation, and task coordination.
-- **`LLMDetachedAgent`**: Agent with an LLM pipeline. Register tools with `@tool`, inject messages on activation, and transfer between agents.
-- **`FlowsDetachedAgent`**: Agent that integrates [Pipecat Flows](https://github.com/pipecat-ai/pipecat-flows) for structured, node-based conversations.
-
-#### Lifecycle hooks
-
-| Hook                       | When it fires                                  |
-|----------------------------|------------------------------------------------|
-| `on_agent_started()`       | Pipeline is ready. Add child agents here.      |
-| `on_agent_ready()`         | Another agent is ready to receive messages.    |
-| `on_agent_activated(args)` | Agent is activated via `activate_agent()`.     |
-| `on_agent_deactivated()`   | Agent is deactivated via `deactivate_agent()`. |
-
 ### Bus
 
 Pub/sub communication between agents and the runner.
@@ -81,6 +64,40 @@ Distributed buses for agents running across separate processes or machines. Netw
 
 - **`RedisBus`**: Bus backed by Redis pub/sub. Each subscriber gets its own Redis subscription. Messages marked with `BusLocalMixin` (e.g. `BusAddAgentMessage`) are silently skipped since they carry in-memory references.
 - **`JSONMessageSerializer`**: Default serializer that encodes messages as JSON. Register a `FrameAdapter` per frame type to handle serialization of Pipecat frames.
+
+### Runner
+
+- **`AgentRunner`**: Orchestrates agent lifecycle, creates pipeline tasks, and coordinates shutdown. Agents can be added dynamically at runtime.
+
+### Registry
+
+- **`AgentRegistry`**: Tracks which agents are ready. Owned by the runner and shared with its agents.
+
+When a **root agent** (added directly to the runner via `AgentRunner.add_agent()`) becomes ready, the runner announces it to all other local agents via `on_agent_ready()`. In distributed setups, root agents are also announced to remote runners over the network bus, so agents on different machines can discover each other.
+
+**Child agents** (added to a parent via `BaseAgent.add_agent()`) are not broadcast. The runner does not announce them to other local agents or remote runners. The parent is automatically notified when a child is ready, and other agents can opt in via `watch_agent(name)`.
+
+Use `watch_agent(name)` to request notification when a specific agent registers. Useful for waiting on remote agents whose startup order is unpredictable.
+
+### Agents
+
+Each agent runs its own Pipecat pipeline and communicates via the bus.
+
+| Class | Use when |
+|---|---|
+| `BaseAgent` | You need a pipeline on the bus with no extra wiring. Handles lifecycle, parent-child, and task coordination. |
+| `DetachedAgent` | Your pipeline receives frames from a `BusBridgeProcessor` in another agent. Adds bus frame routing and active/inactive state. Optionally use `handoff_to()` to transfer between agents. |
+| `LLMDetachedAgent` | Your detached agent needs an LLM. Adds `build_llm()`, `@tool` registration, and message injection on activation. |
+| `FlowsDetachedAgent` | Your detached agent needs structured conversation flows via [Pipecat Flows](https://github.com/pipecat-ai/pipecat-flows). |
+
+#### Lifecycle hooks
+
+| Hook                       | When it fires                                  |
+|----------------------------|------------------------------------------------|
+| `on_agent_started()`       | Pipeline is ready. Add child agents here.      |
+| `on_agent_ready()`         | Another agent is ready to receive messages.    |
+| `on_agent_activated(args)` | Agent is activated via `activate_agent()`.     |
+| `on_agent_deactivated()`   | Agent is deactivated via `deactivate_agent()`. |
 
 ### Tasks
 
@@ -124,20 +141,6 @@ Tasks let a parent agent spawn workers, wait for results, and optionally cancel 
 | `on_task_response()`              | Parent: a worker sent a response.                                                 |
 | `on_task_completed()`             | Parent: all workers in the task group have responded.                             |
 | `on_task_stream_start/data/end()` | Parent: a worker is streaming incremental results.                                |
-
-### Registry
-
-- **`AgentRegistry`**: Tracks which agents are ready. Owned by the runner and shared with its agents.
-
-When a **root agent** (added directly to the runner via `AgentRunner.add_agent()`) becomes ready, the runner announces it to all other local agents via `on_agent_ready()`. In distributed setups, root agents are also announced to remote runners over the network bus, so agents on different machines can discover each other.
-
-**Child agents** (added to a parent via `BaseAgent.add_agent()`) are not broadcast. The runner does not announce them to other local agents or remote runners. The parent is automatically notified when a child is ready, and other agents can opt in via `watch_agent(name)`.
-
-Use `watch_agent(name)` to request notification when a specific agent registers. Useful for waiting on remote agents whose startup order is unpredictable.
-
-### Runner
-
-- **`AgentRunner`**: Orchestrates agent lifecycle, creates pipeline tasks, and coordinates shutdown. Agents can be added dynamically at runtime.
 
 ## Examples
 
