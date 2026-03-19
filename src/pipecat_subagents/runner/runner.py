@@ -217,6 +217,10 @@ class AgentRunner(BaseObject, BusSubscriber):
             )
             return
 
+        if pipeline_task is None:
+            # Pipeline-less agent: already started.
+            return
+
         asyncio_task = asyncio.create_task(
             self._pipecat_runner.run(pipeline_task),
             name=f"agent_{agent.name}",

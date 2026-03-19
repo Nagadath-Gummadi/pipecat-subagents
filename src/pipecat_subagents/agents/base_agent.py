@@ -13,7 +13,6 @@ coordination.
 
 import asyncio
 import uuid
-from abc import abstractmethod
 from dataclasses import dataclass, field
 from typing import Optional, Union
 
@@ -85,12 +84,15 @@ class TaskGroup:
 class BaseAgent(BaseObject, BusSubscriber):
     """Abstract base class for agents in the multi-agent framework.
 
-    Each agent owns a Pipecat pipeline defined by subclasses via
-    ``build_pipeline()``. The pipeline runs continuously once started.
+    Each agent connects to the bus and optionally runs a Pipecat pipeline
+    defined via ``build_pipeline()``. Agents that return None from
+    ``build_pipeline()`` operate purely through bus messages.
 
     Overridable lifecycle methods (always call ``super()``):
 
-    - ``on_agent_started()``: Called once when the agent's pipeline is ready.
+    - ``on_agent_started()``: Called once when the agent is ready.
+    - ``on_agent_activated(args)``: Called when this agent is activated.
+    - ``on_agent_deactivated()``: Called when this agent is deactivated.
     - ``on_agent_ready(agent_info)``: Called when another agent is ready
       to receive messages. For local root agents, fires automatically.
       For children, fires only on the parent. For remote agents, fires
@@ -119,6 +121,8 @@ class BaseAgent(BaseObject, BusSubscriber):
     Event handlers:
 
     - on_agent_started(agent)
+    - on_agent_activated(agent, args)
+    - on_agent_deactivated(agent)
     - on_agent_ready(agent, agent_info)
     - on_task_request(agent, task_id, requester, payload)
     - on_task_response(agent, task_id, agent_name, response, status)
@@ -235,7 +239,7 @@ class BaseAgent(BaseObject, BusSubscriber):
         return self._task_id
 
     async def on_agent_started(self) -> None:
-        """Called once when the agent's pipeline is ready."""
+        """Called once when the agent is ready."""
         pass
 
     async def on_agent_activated(self, args: Optional[dict]) -> None:
@@ -420,16 +424,16 @@ class BaseAgent(BaseObject, BusSubscriber):
 
         await self._call_event_handler("on_bus_message", message)
 
-    @abstractmethod
-    async def build_pipeline(self) -> Pipeline:
-        """Return this agent's pipeline.
+    async def build_pipeline(self) -> Optional[Pipeline]:
+        """Return this agent's pipeline, or None for pipeline-less agents.
 
-        Subclasses implement this to define their processing pipeline.
+        Override to define a processing pipeline. Agents that return None
+        operate purely through bus messages (e.g. coordinators, factories).
 
         Returns:
-            A ``Pipeline`` object.
+            A ``Pipeline``, or None.
         """
-        pass
+        return None
 
     async def create_pipeline(self, user_pipeline: Pipeline) -> Pipeline:
         """Assemble the final pipeline from the user pipeline.
@@ -465,18 +469,21 @@ class BaseAgent(BaseObject, BusSubscriber):
             idle_timeout_secs=None,
         )
 
-    async def create_pipeline_task(self) -> PipelineTask:
-        """Create the agent's pipeline task.
+    async def create_pipeline_task(self) -> Optional[PipelineTask]:
+        """Create the agent's pipeline task, if it has a pipeline.
 
-        Called by the runner. Uses ``build_pipeline()`` and
-        ``build_pipeline_task()`` to assemble the pipeline.
+        Called by the runner. Returns None for pipeline-less agents.
 
         Returns:
-            The configured ``PipelineTask``.
+            The configured ``PipelineTask``, or None.
         """
         await self._bus.subscribe(self)
 
         user_pipeline = await self.build_pipeline()
+        if user_pipeline is None:
+            await self._start()
+            return None
+
         pipeline = await self.create_pipeline(user_pipeline)
 
         task = self.build_pipeline_task(pipeline)
@@ -486,16 +493,14 @@ class BaseAgent(BaseObject, BusSubscriber):
         async def on_pipeline_started(task, frame: StartFrame):
             logger.debug(f"Agent '{self}': pipeline started")
             self._pipeline_started = True
-            await self.on_agent_started()
-            await self._call_event_handler("on_agent_started")
-            await self._register_ready()
+            await self._start()
 
         @task.event_handler("on_pipeline_finished")
         async def on_pipeline_finished(task, frame):
             logger.debug(f"Agent '{self}': pipeline finished ({frame})")
             if isinstance(frame, CancelFrame):
                 await self.cancel()
-            self._finished.set()
+            await self._stop()
 
         return task
 
@@ -512,8 +517,42 @@ class BaseAgent(BaseObject, BusSubscriber):
         await self.send_message(BusCancelMessage(source=self.name))
 
     async def wait(self) -> None:
-        """Wait for this agent's pipeline to finish."""
+        """Wait for this agent to finish."""
         await self._finished.wait()
+
+    async def send_message(self, message: BusMessage) -> None:
+        """Send a message on the bus.
+
+        Args:
+            message: The `BusMessage` to send.
+        """
+        await self._bus.send(message)
+
+    async def queue_frame(
+        self, frame: Frame, direction: FrameDirection = FrameDirection.DOWNSTREAM
+    ) -> None:
+        """Queue a frame into this agent's pipeline task.
+
+        Args:
+            frame: The frame to queue into the pipeline task.
+            direction: Direction the frame should travel. Defaults to
+                ``FrameDirection.DOWNSTREAM``.
+        """
+        if self._task:
+            await self._task.queue_frame(frame, direction)
+
+    async def queue_frames(
+        self, frames, direction: FrameDirection = FrameDirection.DOWNSTREAM
+    ) -> None:
+        """Queue multiple frames into this agent's pipeline task.
+
+        Args:
+            frames: The frames to queue into the pipeline task.
+            direction: Direction the frames should travel. Defaults to
+                ``FrameDirection.DOWNSTREAM``.
+        """
+        if self._task:
+            await self._task.queue_frames(frames, direction)
 
     async def add_agent(self, agent: "BaseAgent") -> None:
         """Register a child agent under this parent.
@@ -585,29 +624,6 @@ class BaseAgent(BaseObject, BusSubscriber):
             if data:
                 await self._on_watched_agent_ready(data)
 
-    async def _register_ready(self) -> None:
-        """Register this agent as ready in the shared registry.
-
-        Called automatically after ``on_agent_started()`` completes.
-        The registry notifies watchers (parent for children, runner
-        for root agents).
-        """
-        if self._registry:
-            await self._registry.register(
-                RegisteredAgentData(
-                    agent_name=self.name,
-                    runner=self._registry.runner_name,
-                )
-            )
-
-    async def _on_watched_agent_ready(self, agent_data: RegisteredAgentData) -> None:
-        """Called when a watched agent is ready.
-
-        Proxies to ``on_agent_ready``.
-        """
-        await self.on_agent_ready(agent_data)
-        await self._call_event_handler("on_agent_ready", agent_data)
-
     async def start_task(
         self,
         *agents: "BaseAgent",
@@ -667,39 +683,6 @@ class BaseAgent(BaseObject, BusSubscriber):
             await self._send_task_request(name, task_id, payload)
 
         return task_id
-
-    def _create_task_group(
-        self,
-        agent_names: list[str],
-        *,
-        timeout: Optional[float] = None,
-    ) -> str:
-        """Create a task group and return the generated task_id."""
-        task_id = str(uuid.uuid4())
-        group = TaskGroup(task_id=task_id, agent_names=set(agent_names))
-        self._task_groups[task_id] = group
-
-        if timeout is not None:
-            group.timeout_task = asyncio.create_task(self._task_timeout(task_id, timeout))
-
-        return task_id
-
-    async def _send_task_request(
-        self, agent_name: str, task_id: str, payload: Optional[dict]
-    ) -> None:
-        """Send a BusTaskRequestMessage to a single agent."""
-        await self.send_message(
-            BusTaskRequestMessage(
-                source=self.name, target=agent_name, task_id=task_id, payload=payload
-            )
-        )
-
-    async def _task_timeout(self, task_id: str, timeout: float) -> None:
-        try:
-            await asyncio.sleep(timeout)
-        except asyncio.CancelledError:
-            return
-        await self.cancel_task(task_id, reason="timeout")
 
     async def cancel_task(self, task_id: str, *, reason: Optional[str] = None) -> None:
         """Cancel a running task group.
@@ -838,39 +821,79 @@ class BaseAgent(BaseObject, BusSubscriber):
             )
         )
 
-    async def send_message(self, message: BusMessage) -> None:
-        """Send a message on the bus.
+    async def _start(self) -> None:
+        """Fire agent lifecycle hooks and register as ready.
 
-        Args:
-            message: The `BusMessage` to send.
+        Called automatically when the pipeline starts, or directly by
+        ``create_pipeline_task()`` for pipeline-less agents.
         """
-        await self._bus.send(message)
+        await self.on_agent_started()
+        await self._call_event_handler("on_agent_started")
+        await self._register_ready()
 
-    async def queue_frame(
-        self, frame: Frame, direction: FrameDirection = FrameDirection.DOWNSTREAM
+    async def _stop(self) -> None:
+        """Signal that this agent has stopped.
+
+        Called by ``on_pipeline_finished`` for pipeline agents, or by
+        the end/cancel handlers for pipeline-less agents.
+        """
+        self._finished.set()
+
+    async def _register_ready(self) -> None:
+        """Register this agent as ready in the shared registry.
+
+        Called automatically after ``on_agent_started()`` completes.
+        The registry notifies watchers (parent for children, runner
+        for root agents).
+        """
+        if self._registry:
+            await self._registry.register(
+                RegisteredAgentData(
+                    agent_name=self.name,
+                    runner=self._registry.runner_name,
+                )
+            )
+
+    async def _on_watched_agent_ready(self, agent_data: RegisteredAgentData) -> None:
+        """Called when a watched agent is ready.
+
+        Proxies to ``on_agent_ready``.
+        """
+        await self.on_agent_ready(agent_data)
+        await self._call_event_handler("on_agent_ready", agent_data)
+
+    def _create_task_group(
+        self,
+        agent_names: list[str],
+        *,
+        timeout: Optional[float] = None,
+    ) -> str:
+        """Create a task group and return the generated task_id."""
+        task_id = str(uuid.uuid4())
+        group = TaskGroup(task_id=task_id, agent_names=set(agent_names))
+        self._task_groups[task_id] = group
+
+        if timeout is not None:
+            group.timeout_task = asyncio.create_task(self._task_timeout(task_id, timeout))
+
+        return task_id
+
+    async def _send_task_request(
+        self, agent_name: str, task_id: str, payload: Optional[dict]
     ) -> None:
-        """Queue a frame into this agent's pipeline task.
+        """Send a BusTaskRequestMessage to a single agent."""
+        await self.send_message(
+            BusTaskRequestMessage(
+                source=self.name, target=agent_name, task_id=task_id, payload=payload
+            )
+        )
 
-        Args:
-            frame: The frame to queue into the pipeline task.
-            direction: Direction the frame should travel. Defaults to
-                ``FrameDirection.DOWNSTREAM``.
-        """
-        if self._task:
-            await self._task.queue_frame(frame, direction)
-
-    async def queue_frames(
-        self, frames, direction: FrameDirection = FrameDirection.DOWNSTREAM
-    ) -> None:
-        """Queue multiple frames into this agent's pipeline task.
-
-        Args:
-            frames: The frames to queue into the pipeline task.
-            direction: Direction the frames should travel. Defaults to
-                ``FrameDirection.DOWNSTREAM``.
-        """
-        if self._task:
-            await self._task.queue_frames(frames, direction)
+    async def _task_timeout(self, task_id: str, timeout: float) -> None:
+        try:
+            await asyncio.sleep(timeout)
+        except asyncio.CancelledError:
+            return
+        await self.cancel_task(task_id, reason="timeout")
 
     async def _handle_agent_activate(self, message: BusActivateAgentMessage) -> None:
         """Activate this agent.
@@ -908,6 +931,8 @@ class BaseAgent(BaseObject, BusSubscriber):
         await asyncio.gather(*(child.wait() for child in self._children))
         if self._task:
             await self._task.queue_frame(EndFrame(reason=message.reason))
+        else:
+            await self._stop()
 
     async def _handle_agent_cancel(self, message: BusCancelAgentMessage) -> None:
         """Propagate cancel to children, then cancel own pipeline.
@@ -922,6 +947,8 @@ class BaseAgent(BaseObject, BusSubscriber):
             )
         if self._task:
             await self._task.cancel()
+        else:
+            await self._stop()
 
     async def _handle_task_request(self, message: BusTaskRequestMessage) -> None:
         """Handle an incoming task request."""
