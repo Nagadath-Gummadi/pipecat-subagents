@@ -50,7 +50,7 @@ from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.transports.base_transport import BaseTransport, TransportParams
 from pipecat.transports.daily.transport import DailyParams
 
-from pipecat_subagents.agents import BaseAgent, LLMActivationArgs, LLMAgent, tool
+from pipecat_subagents.agents import BaseAgent, LLMActivationArgs, LLMDetachedAgent, tool
 from pipecat_subagents.bus import AgentBus, BusBridgeProcessor
 from pipecat_subagents.runner import AgentRunner
 from pipecat_subagents.types import RegisteredAgentData
@@ -69,7 +69,7 @@ transport_params = {
 }
 
 
-class AcmeTTSAgent(LLMAgent):
+class AcmeTTSAgent(LLMDetachedAgent):
     """Base agent for Acme Corp with per-agent TTS voice."""
 
     def __init__(self, name: str, *, bus: AgentBus, voice_id: str):

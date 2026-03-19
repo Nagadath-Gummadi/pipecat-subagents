@@ -44,7 +44,7 @@ from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.transports.base_transport import BaseTransport, TransportParams
 from pipecat.transports.daily.transport import DailyParams
 
-from pipecat_subagents.agents import BaseAgent, LLMActivationArgs, LLMAgent, tool
+from pipecat_subagents.agents import BaseAgent, LLMActivationArgs, LLMDetachedAgent, tool
 from pipecat_subagents.bus import AgentBus, BusBridgeProcessor
 from pipecat_subagents.runner import AgentRunner
 from pipecat_subagents.types import RegisteredAgentData
@@ -63,7 +63,7 @@ transport_params = {
 }
 
 
-class AcmeLLMAgent(LLMAgent):
+class AcmeLLMAgent(LLMDetachedAgent):
     """Base agent for Acme Corp with transfer and end tools."""
 
     @tool(cancel_on_interruption=False)
@@ -151,9 +151,6 @@ class AcmeAgent(BaseAgent):
     def __init__(self, name: str, *, bus: AgentBus, transport: BaseTransport):
         super().__init__(name, bus=bus)
         self._transport = transport
-
-    async def on_agent_started(self) -> None:
-        await super().on_agent_started()
 
     async def on_agent_ready(self, agent_info: RegisteredAgentData) -> None:
         if agent_info.agent_name != "greeter":

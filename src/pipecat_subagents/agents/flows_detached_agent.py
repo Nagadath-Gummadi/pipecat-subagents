@@ -6,7 +6,7 @@
 
 """Flows agent that integrates Pipecat Flows into the multi-agent framework.
 
-Provides the `FlowsAgent` class that extends `DetachedAgent` with a
+Provides the `FlowsDetachedAgent` class that extends `DetachedAgent` with a
 FlowManager for structured conversation flows (nodes, functions, transitions,
 actions).
 """
@@ -25,7 +25,7 @@ from pipecat_subagents.agents.tool import _collect_tools
 from pipecat_subagents.bus import AgentBus
 
 
-class FlowsAgent(DetachedAgent):
+class FlowsDetachedAgent(DetachedAgent):
     """Agent that uses Pipecat Flows for structured conversation.
 
     Manages a ``FlowManager`` for node-based conversation flows with
@@ -35,7 +35,7 @@ class FlowsAgent(DetachedAgent):
 
     Example::
 
-        class MyFlowsAgent(FlowsAgent):
+        class MyFlowsAgent(FlowsDetachedAgent):
             def build_llm(self):
                 return OpenAILLMService(api_key="...")
 
@@ -53,7 +53,7 @@ class FlowsAgent(DetachedAgent):
         global_functions: Optional[List[FlowsFunctionSchema | FlowsDirectFunction]] = None,
         active: bool = False,
     ):
-        """Initialize the FlowsAgent.
+        """Initialize the FlowsDetachedAgent.
 
         Args:
             name: Unique name for this agent.
@@ -78,13 +78,13 @@ class FlowsAgent(DetachedAgent):
         self._flow_manager: Optional[FlowManager] = None
         self._flow_initialized = False
 
-    async def on_agent_handoff(self, args: Optional[dict]) -> None:
+    async def on_agent_activated(self, args: Optional[dict]) -> None:
         """Initialize or resume the flow on handoff.
 
         Args:
             args: Optional handoff arguments.
         """
-        await super().on_agent_handoff(args)
+        await super().on_agent_activated(args)
 
         if not self._flow_initialized:
             self._flow_initialized = True

@@ -6,7 +6,7 @@
 
 """LLM agent base class with startup behavior and tool registration.
 
-Provides the `LLMAgent` class that extends `DetachedAgent` with an LLM
+Provides the `LLMDetachedAgent` class that extends `DetachedAgent` with an LLM
 pipeline and automatic tool registration.
 """
 
@@ -47,7 +47,7 @@ class LLMActivationArgs(ActivationArgs):
             args=LLMActivationArgs(messages=[...]),
         )
 
-    ``LLMAgent.on_agent_handoff`` reconstructs this from the raw dict
+    ``LLMDetachedAgent.on_agent_activated`` reconstructs this from the raw dict
     via ``model_validate``.
 
     Attributes:
@@ -72,7 +72,7 @@ class PipelineFlushFrame(ControlFrame, UninterruptibleFrame):
     pass
 
 
-class LLMAgent(DetachedAgent):
+class LLMDetachedAgent(DetachedAgent):
     """Base class for agents with an LLM pipeline.
 
     Subclasses provide an LLM service via ``build_llm()`` and define tools
@@ -80,7 +80,7 @@ class LLMAgent(DetachedAgent):
 
     Example::
 
-        class MyAgent(LLMAgent):
+        class MyAgent(LLMDetachedAgent):
             def build_llm(self) -> LLMService:
                 return OpenAILLMService(
                     api_key="...",
@@ -99,7 +99,7 @@ class LLMAgent(DetachedAgent):
         bus: AgentBus,
         active: bool = False,
     ):
-        """Initialize the LLMAgent.
+        """Initialize the LLMDetachedAgent.
 
         Args:
             name: Unique name for this agent.
@@ -116,13 +116,13 @@ class LLMAgent(DetachedAgent):
         self._flush_done: asyncio.Event = asyncio.Event()
         self._flush_handlers_registered: bool = False
 
-    async def on_agent_handoff(self, args: Optional[dict]) -> None:
+    async def on_agent_activated(self, args: Optional[dict]) -> None:
         """Configure the LLM with tools and handoff messages.
 
         Args:
             args: Optional handoff arguments with messages to append.
         """
-        await super().on_agent_handoff(args)
+        await super().on_agent_activated(args)
 
         activation = LLMActivationArgs.model_validate(args) if args else LLMActivationArgs()
 
@@ -211,7 +211,7 @@ class LLMAgent(DetachedAgent):
         Args:
             agent_name: The name of the agent to hand off to.
             args: Optional arguments forwarded to the target agent's
-                ``on_agent_handoff`` handler. Accepts a ``BaseModel``
+                ``on_agent_activated`` handler. Accepts a ``BaseModel``
                 (e.g. ``LLMActivationArgs``), a plain dict, or None.
             result_callback: The ``result_callback`` from `FunctionCallParams`.
         """

@@ -30,7 +30,7 @@ from pipecat.services.openai.base_llm import OpenAILLMSettings
 from pipecat.services.openai.llm import OpenAILLMService
 from redis.asyncio import Redis
 
-from pipecat_subagents.agents import LLMActivationArgs, LLMAgent, tool
+from pipecat_subagents.agents import LLMActivationArgs, LLMDetachedAgent, tool
 from pipecat_subagents.bus.network.redis import RedisBus
 from pipecat_subagents.runner import AgentRunner
 
@@ -68,7 +68,7 @@ AGENT_CONFIG = {
 }
 
 
-class AcmeLLMAgent(LLMAgent):
+class AcmeLLMAgent(LLMDetachedAgent):
     """LLM agent for Acme Corp with transfer and end tools."""
 
     def __init__(self, name: str, *, bus, system_instruction: str, watch_agents: list[str]):

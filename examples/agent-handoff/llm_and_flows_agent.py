@@ -44,7 +44,13 @@ from pipecat.transports.base_transport import BaseTransport, TransportParams
 from pipecat.transports.daily.transport import DailyParams
 from pipecat_flows import FlowManager, FlowResult, NodeConfig
 
-from pipecat_subagents.agents import BaseAgent, FlowsAgent, LLMActivationArgs, LLMAgent, tool
+from pipecat_subagents.agents import (
+    BaseAgent,
+    FlowsDetachedAgent,
+    LLMActivationArgs,
+    LLMDetachedAgent,
+    tool,
+)
 from pipecat_subagents.bus import AgentBus, BusBridgeProcessor
 from pipecat_subagents.runner import AgentRunner
 from pipecat_subagents.types import RegisteredAgentData
@@ -78,7 +84,7 @@ class MockReservationSystem:
         return is_available, alternatives
 
 
-class ReservationAgent(FlowsAgent):
+class ReservationAgent(FlowsDetachedAgent):
     """Structured reservation flow using Pipecat Flows."""
 
     def __init__(self, name: str, *, bus: AgentBus, context_aggregator, reservation_system):
@@ -206,7 +212,7 @@ class ReservationAgent(FlowsAgent):
         return {"status": "success"}, self.build_initial_node()
 
 
-class RouterAgent(LLMAgent):
+class RouterAgent(LLMDetachedAgent):
     """Routes the user to the reservation agent or answers general questions."""
 
     def build_llm(self) -> LLMService:
@@ -262,19 +268,6 @@ class RestaurantAgent(BaseAgent):
         super().__init__(name, bus=bus)
         self._transport = transport
 
-    async def on_agent_started(self) -> None:
-        await super().on_agent_started()
-
-        router = RouterAgent("router", bus=self.bus)
-        reservation = ReservationAgent(
-            "reservation",
-            bus=self.bus,
-            context_aggregator=self._context_aggregator,
-            reservation_system=MockReservationSystem(),
-        )
-        for agent in [router, reservation]:
-            await self.add_agent(agent)
-
     async def on_agent_ready(self, agent_info: RegisteredAgentData) -> None:
         if agent_info.agent_name != "router":
             return
@@ -317,7 +310,15 @@ class RestaurantAgent(BaseAgent):
         @self._transport.event_handler("on_client_connected")
         async def on_client_connected(transport, client):
             logger.info("Client connected")
-            await self.activate_agent(self.name)
+            router = RouterAgent("router", bus=self.bus)
+            reservation = ReservationAgent(
+                "reservation",
+                bus=self.bus,
+                context_aggregator=self._context_aggregator,
+                reservation_system=MockReservationSystem(),
+            )
+            for agent in [router, reservation]:
+                await self.add_agent(agent)
 
         @self._transport.event_handler("on_client_disconnected")
         async def on_client_disconnected(transport, client):
