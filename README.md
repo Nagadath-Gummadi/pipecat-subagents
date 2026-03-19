@@ -81,14 +81,14 @@ Use `watch_agent(name)` to request notification when a specific agent registers.
 
 ### Agents
 
-Each agent runs its own Pipecat pipeline and communicates via the bus.
+Agents are the building blocks of a multi-agent system. Each agent wraps a Pipecat pipeline and connects to the bus, where it can exchange frames and messages with other agents. Agents can launch subagents, activate or deactivate each other, and coordinate work through tasks.
 
-| Class | Use when |
-|---|---|
-| `BaseAgent` | You need a pipeline on the bus with no extra wiring. Handles lifecycle, parent-child, and task coordination. |
-| `DetachedAgent` | Your pipeline receives frames from a `BusBridgeProcessor` in another agent. Adds bus frame routing and active/inactive state. Optionally use `handoff_to()` to transfer between agents. |
-| `LLMDetachedAgent` | Your detached agent needs an LLM. Adds `build_llm()`, `@tool` registration, and message injection on activation. |
-| `FlowsDetachedAgent` | Your detached agent needs structured conversation flows via [Pipecat Flows](https://github.com/pipecat-ai/pipecat-flows). |
+| Class                | Use when                                                                                                                                                                                |
+|----------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `BaseAgent`          | You need a pipeline on the bus with no extra wiring. Handles lifecycle, parent-child, and task coordination.                                                                            |
+| `DetachedAgent`      | Your pipeline receives frames from a `BusBridgeProcessor` in another agent. Adds bus frame routing and active/inactive state. Optionally use `handoff_to()` to transfer between agents. |
+| `LLMDetachedAgent`   | Your detached agent needs an LLM. Adds `build_llm()`, `@tool` registration, and message injection on activation.                                                                        |
+| `FlowsDetachedAgent` | Your detached agent needs structured conversation flows via [Pipecat Flows](https://github.com/pipecat-ai/pipecat-flows).                                                               |
 
 #### Lifecycle hooks
 
