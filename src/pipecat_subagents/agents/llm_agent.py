@@ -144,8 +144,15 @@ class LLMAgent(BaseAgent):
         """
         pass
 
-    def _build_llm(self) -> LLMService:
-        """Create the LLM and register ``@tool`` decorated methods."""
+    def create_llm(self) -> LLMService:
+        """Create the LLM with tools registered.
+
+        Calls ``build_llm()`` and registers all ``@tool`` decorated methods.
+        Override to customize the LLM setup.
+
+        Returns:
+            The configured `LLMService`.
+        """
         llm = self.build_llm()
         for method in _collect_tools(self):
             llm.register_direct_function(
@@ -160,7 +167,7 @@ class LLMAgent(BaseAgent):
         Returns:
             The agent's ``Pipeline``.
         """
-        self._llm = self._build_llm()
+        self._llm = self.create_llm()
         return Pipeline([self._llm])
 
     async def end(
