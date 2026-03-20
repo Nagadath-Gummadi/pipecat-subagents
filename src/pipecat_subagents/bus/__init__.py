@@ -15,8 +15,8 @@ the runner. Key components:
   transport/session agents that exchanges frames with other agents
   through the bus.
 - `BusMessage` and its subclasses -- the typed message hierarchy used for
-  agent lifecycle events (activation, cancellation, shutdown), session events
-  (client connect/disconnect, turn boundaries), and frame transport.
+  agent lifecycle events (activation, cancellation, shutdown), task
+  coordination, and frame transport.
 """
 
 from pipecat_subagents.bus.bridge_processor import BusBridgeProcessor
@@ -28,12 +28,8 @@ from pipecat_subagents.bus.messages import (
     BusAgentErrorMessage,
     BusAgentLocalErrorMessage,
     BusAgentRegistryMessage,
-    BusAssistantTurnStartedMessage,
-    BusAssistantTurnStoppedMessage,
     BusCancelAgentMessage,
     BusCancelMessage,
-    BusClientConnectedMessage,
-    BusClientDisconnectedMessage,
     BusDeactivateAgentMessage,
     BusEndAgentMessage,
     BusEndMessage,
@@ -48,9 +44,6 @@ from pipecat_subagents.bus.messages import (
     BusTaskStreamStartMessage,
     BusTaskUpdateMessage,
     BusTaskUpdateRequestMessage,
-    BusUserTranscriptMessage,
-    BusUserTurnStartedMessage,
-    BusUserTurnStoppedMessage,
     TaskStatus,
 )
 from pipecat_subagents.bus.subscriber import BusSubscriber
@@ -63,14 +56,10 @@ __all__ = [
     "BusAgentErrorMessage",
     "BusAgentLocalErrorMessage",
     "BusAgentRegistryMessage",
-    "BusAssistantTurnStartedMessage",
-    "BusAssistantTurnStoppedMessage",
     "BusBridgeProcessor",
     "BusCancelAgentMessage",
     "BusCancelMessage",
     "BusDeactivateAgentMessage",
-    "BusClientConnectedMessage",
-    "BusClientDisconnectedMessage",
     "BusEndAgentMessage",
     "BusEndMessage",
     "BusFrameMessage",
@@ -86,7 +75,4 @@ __all__ = [
     "BusTaskStreamStartMessage",
     "BusTaskUpdateMessage",
     "BusTaskUpdateRequestMessage",
-    "BusUserTranscriptMessage",
-    "BusUserTurnStartedMessage",
-    "BusUserTurnStoppedMessage",
 ]

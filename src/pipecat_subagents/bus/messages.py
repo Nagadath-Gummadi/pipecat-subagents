@@ -16,10 +16,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional
 
 from pipecat.frames.frames import DataFrame, Frame
-from pipecat.processors.aggregators.llm_response_universal import (
-    AssistantTurnStoppedMessage,
-    UserTurnStoppedMessage,
-)
 from pipecat.processors.frame_processor import FrameDirection
 
 from pipecat_subagents.types import TaskStatus
@@ -192,77 +188,6 @@ class BusAddAgentMessage(BusMessage, BusLocalMixin):
     """
 
     agent: BaseAgent
-
-
-@dataclass
-class BusClientConnectedMessage(BusMessage, BusLocalMixin):
-    """A client connected to the transport.
-
-    Parameters:
-        client: The transport client that connected.
-    """
-
-    client: object
-
-
-@dataclass
-class BusClientDisconnectedMessage(BusMessage, BusLocalMixin):
-    """A client disconnected from the transport.
-
-    Parameters:
-        client: The transport client that disconnected.
-    """
-
-    client: object
-
-
-@dataclass
-class BusUserTurnStartedMessage(BusMessage):
-    """The user started speaking (turn boundary detected)."""
-
-    pass
-
-
-@dataclass
-class BusUserTurnStoppedMessage(BusMessage):
-    """The user stopped speaking (turn boundary detected).
-
-    Parameters:
-        message: The turn-stopped message from the user aggregator.
-    """
-
-    message: UserTurnStoppedMessage
-
-
-@dataclass
-class BusAssistantTurnStartedMessage(BusMessage):
-    """The assistant started responding (LLM generation started)."""
-
-    pass
-
-
-@dataclass
-class BusAssistantTurnStoppedMessage(BusMessage):
-    """The assistant finished responding (LLM generation completed).
-
-    Parameters:
-        message: The turn-stopped message from the assistant aggregator.
-    """
-
-    message: AssistantTurnStoppedMessage
-
-
-@dataclass
-class BusUserTranscriptMessage(BusMessage):
-    """Carries a final user transcription text to agents.
-
-    Parameters:
-        text: The transcribed text.
-        user_id: Identifier of the user who spoke.
-    """
-
-    text: str
-    user_id: str
 
 
 @dataclass
