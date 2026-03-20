@@ -90,7 +90,7 @@ class RedisBus(AgentBus):
         pubsub = self._redis.pubsub()
         await pubsub.subscribe(self._channel)
         queue: asyncio.Queue[BusMessage] = asyncio.Queue()
-        task = asyncio.create_task(self._reader_task(pubsub, queue))
+        task = self._create_task(self._reader_task(pubsub, queue), "redis_reader")
         conn = RedisConnection(pubsub=pubsub, queue=queue, task=task)
         self._connections.append(conn)
         return conn

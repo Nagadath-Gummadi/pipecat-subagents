@@ -14,7 +14,7 @@ coordination.
 import asyncio
 import uuid
 from dataclasses import dataclass, field
-from typing import Optional, Union
+from typing import Coroutine, Optional, Union
 
 from loguru import logger
 from pipecat.frames.frames import (
@@ -27,6 +27,7 @@ from pipecat.frames.frames import (
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.task import PipelineTask
 from pipecat.processors.frame_processor import FrameDirection
+from pipecat.utils.asyncio.task_manager import TaskManager
 from pipecat.utils.base_object import BaseObject
 from pydantic import BaseModel
 
@@ -172,6 +173,7 @@ class BaseAgent(BaseObject, BusSubscriber):
         self._finished: asyncio.Event = asyncio.Event()
         self._pipeline_started = False
         self._registry: Optional[AgentRegistry] = None
+        self._task_manager: Optional[TaskManager] = None
 
         # Task state (as worker)
         self._task_id: Optional[str] = None
@@ -226,6 +228,14 @@ class BaseAgent(BaseObject, BusSubscriber):
             registry: The shared registry instance.
         """
         self._registry = registry
+
+    def set_task_manager(self, task_manager: TaskManager) -> None:
+        """Set the shared task manager for asyncio task creation.
+
+        Args:
+            task_manager: The shared task manager instance.
+        """
+        self._task_manager = task_manager
 
     @property
     def children(self) -> list["BaseAgent"]:
@@ -283,7 +293,7 @@ class BaseAgent(BaseObject, BusSubscriber):
         """
         pass
 
-    async def on_agent_ready(self, agent_info: AgentReadyData) -> None:
+    async def on_agent_ready(self, data: AgentReadyData) -> None:
         """Called when another agent is ready to receive messages.
 
         For local root agents this fires automatically. For remote agents
@@ -291,15 +301,15 @@ class BaseAgent(BaseObject, BusSubscriber):
         agents it fires only on the parent that created them.
 
         Args:
-            agent_info: Information about the ready agent.
+            data: Information about the ready agent.
         """
-        logger.debug(f"Agent '{self}': agent '{agent_info.agent_name}' ready")
+        logger.debug(f"Agent '{self}': agent '{data.agent_name}' ready")
 
-    async def on_agent_error(self, error_info: AgentErrorData) -> None:
+    async def on_agent_error(self, data: AgentErrorData) -> None:
         """Called when a child agent reports an error.
 
         Args:
-            error_info: Information about the error.
+            data: Information about the error.
         """
         pass
 
@@ -899,6 +909,12 @@ class BaseAgent(BaseObject, BusSubscriber):
         """
         self._finished.set()
 
+    def _create_task(self, coroutine: Coroutine, name: str) -> asyncio.Task:
+        """Create an asyncio task via the task manager."""
+        if not self._task_manager:
+            raise RuntimeError(f"Agent '{self}': task manager not set")
+        return self._task_manager.create_task(coroutine, name)
+
     async def _register_ready(self) -> None:
         """Register this agent as ready in the shared registry.
 
@@ -937,7 +953,9 @@ class BaseAgent(BaseObject, BusSubscriber):
         self._task_groups[task_id] = group
 
         if timeout is not None:
-            group.timeout_task = asyncio.create_task(self._task_timeout(task_id, timeout))
+            group.timeout_task = self._create_task(
+                self._task_timeout(task_id, timeout), f"task_timeout_{task_id[:8]}"
+            )
 
         return task_id
 

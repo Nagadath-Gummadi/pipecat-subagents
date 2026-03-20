@@ -12,6 +12,7 @@ from typing import Optional
 
 from loguru import logger
 from pipecat.pipeline.runner import PipelineRunner
+from pipecat.utils.asyncio.task_manager import TaskManager, TaskManagerParams
 from pipecat.utils.base_object import BaseObject
 
 from pipecat_subagents.agents.base_agent import BaseAgent
@@ -81,6 +82,7 @@ class AgentRunner(BaseObject, BusSubscriber):
         self._running: bool = False
         self._agents: dict[str, BaseAgent] = {}
         self._running_agent_tasks: dict[str, asyncio.Task] = {}
+        self._task_manager = TaskManager()
         self._pipecat_runner = PipelineRunner(handle_sigint=handle_sigint)
         self._shutdown_event = asyncio.Event()
         self._known_runners: set[str] = set()
@@ -111,9 +113,9 @@ class AgentRunner(BaseObject, BusSubscriber):
         if message.source == self.name:
             return
         if isinstance(message, BusEndMessage):
-            asyncio.create_task(self.end(message.reason))
+            self._create_task(self.end(message.reason), "end")
         elif isinstance(message, BusCancelMessage):
-            asyncio.create_task(self.cancel(message.reason))
+            self._create_task(self.cancel(message.reason), "cancel")
         elif isinstance(message, BusAddAgentMessage) and message.agent:
             await self.add_agent(message.agent)
         elif isinstance(message, BusAgentRegistryMessage):
@@ -132,6 +134,7 @@ class AgentRunner(BaseObject, BusSubscriber):
             logger.error(f"AgentRunner '{self}': agent '{agent.name}' already exists, skipping")
             return
         agent.set_registry(self._registry)
+        agent.set_task_manager(self._task_manager)
         self._registry.watch(agent.name, self._on_agent_ready)
         self._agents[agent.name] = agent
         logger.debug(f"AgentRunner '{self}': added agent '{agent.name}'")
@@ -148,6 +151,9 @@ class AgentRunner(BaseObject, BusSubscriber):
         """
         self._running = True
         self._shutdown_event.clear()
+
+        self._task_manager.setup(TaskManagerParams(loop=asyncio.get_running_loop()))
+        self._bus.set_task_manager(self._task_manager)
 
         await self._bus.subscribe(self)
         await self._bus.start()
@@ -223,9 +229,9 @@ class AgentRunner(BaseObject, BusSubscriber):
             # Pipeline-less agent: already started.
             return
 
-        asyncio_task = asyncio.create_task(
+        asyncio_task = self._create_task(
             self._pipecat_runner.run(pipeline_task),
-            name=f"agent_{agent.name}",
+            f"agent_{agent.name}",
         )
 
         # Register the agent task.
@@ -234,6 +240,10 @@ class AgentRunner(BaseObject, BusSubscriber):
 
         # Add the task to event loop right away without needing to `await`.
         await asyncio.sleep(0)
+
+    def _create_task(self, coroutine, name: str) -> asyncio.Task:
+        """Create an asyncio task via the task manager."""
+        return self._task_manager.create_task(coroutine, name)
 
     def _on_agent_task_done(self, task: asyncio.Task) -> None:
         """Remove a completed agent task."""

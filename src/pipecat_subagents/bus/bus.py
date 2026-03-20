@@ -13,8 +13,9 @@ Provides the abstract `AgentBus` base class. Concrete implementations
 import asyncio
 from abc import abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, Coroutine, Optional
 
+from pipecat.utils.asyncio.task_manager import TaskManager
 from pipecat.utils.base_object import BaseObject
 
 from pipecat_subagents.bus.messages import BusMessage
@@ -56,6 +57,15 @@ class AgentBus(BaseObject):
         super().__init__(**kwargs)
         self._subscriptions: list[BusSubscription] = []
         self._running = False
+        self._task_manager: Optional[TaskManager] = None
+
+    def set_task_manager(self, task_manager: TaskManager) -> None:
+        """Set the shared task manager for asyncio task creation.
+
+        Args:
+            task_manager: The shared task manager instance.
+        """
+        self._task_manager = task_manager
 
     async def subscribe(self, subscriber: BusSubscriber) -> None:
         """Register a subscriber to receive messages from the bus.
@@ -66,7 +76,9 @@ class AgentBus(BaseObject):
         client = await self.connect()
         sub = BusSubscription(subscriber=subscriber, client=client)
         if self._running:
-            sub.task = asyncio.create_task(self._subscriber_task(sub))
+            sub.task = self._create_task(
+                self._subscriber_task(sub), f"bus_subscriber_{sub.subscriber}"
+            )
         self._subscriptions.append(sub)
 
     async def unsubscribe(self, subscriber: BusSubscriber) -> None:
@@ -94,7 +106,9 @@ class AgentBus(BaseObject):
             return
         self._running = True
         for sub in self._subscriptions:
-            sub.task = asyncio.create_task(self._subscriber_task(sub))
+            sub.task = self._create_task(
+                self._subscriber_task(sub), f"bus_subscriber_{sub.subscriber}"
+            )
 
     async def stop(self):
         """Stop all subscriber tasks and disconnect them."""
@@ -160,3 +174,9 @@ class AgentBus(BaseObject):
             pass
         finally:
             await self.disconnect(sub.client)
+
+    def _create_task(self, coroutine: Coroutine, name: str) -> asyncio.Task:
+        """Create an asyncio task via the task manager."""
+        if not self._task_manager:
+            raise RuntimeError(f"{self}: task manager not set")
+        return self._task_manager.create_task(coroutine, f"{self}::{name}")
