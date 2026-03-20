@@ -123,12 +123,10 @@ class AgentRunner(BaseObject, BusSubscriber):
 
         Args:
             agent: The agent to add.
-
-        Raises:
-            ValueError: If an agent with this name already exists.
         """
         if agent.name in self._agents:
-            raise ValueError(f"Agent '{agent.name}' already exists")
+            logger.error(f"AgentRunner '{self}': agent '{agent.name}' already exists, skipping")
+            return
         agent.set_registry(self._registry)
         self._registry.watch(agent.name, self._on_agent_ready)
         self._agents[agent.name] = agent

@@ -30,16 +30,15 @@ class StubAgent(BaseAgent):
 
 class TestAgentRunner(unittest.IsolatedAsyncioTestCase):
     async def test_add_agent_registers_agent(self):
-        """add_agent() registers the agent by name (duplicate raises ValueError)."""
+        """add_agent() registers the agent by name (duplicate is silently skipped)."""
         runner = AgentRunner(handle_sigint=False)
         bus = runner.bus
         agent = StubAgent("agent_a", bus=bus)
 
         await runner.add_agent(agent)
 
-        # Verify registration by trying to add a duplicate
-        with self.assertRaises(ValueError):
-            await runner.add_agent(StubAgent("agent_a", bus=bus))
+        # Duplicate is silently skipped (logs error)
+        await runner.add_agent(StubAgent("agent_a", bus=bus))
 
     async def test_run_starts_bus_and_agents(self):
         """run() starts bus, starts all agents, fires on_runner_started."""
@@ -194,9 +193,8 @@ class TestAgentRunner(unittest.IsolatedAsyncioTestCase):
 
         await asyncio.wait_for(runner.run(), timeout=5.0)
 
-        # Verify agent_b was added by checking that a duplicate raises ValueError
-        with self.assertRaises(ValueError):
-            await runner.add_agent(StubAgent("agent_b", bus=bus))
+        # Verify agent_b was added (duplicate is silently skipped)
+        await runner.add_agent(StubAgent("agent_b", bus=bus))
 
 
 if __name__ == "__main__":

@@ -615,12 +615,10 @@ class BaseAgent(BaseObject, BusSubscriber):
 
         Args:
             agent: The child `BaseAgent` instance to add.
-
-        Raises:
-            ValueError: If the agent already has a parent.
         """
         if agent._parent is not None:
-            raise ValueError(f"Agent '{agent.name}' already has parent '{agent._parent}'")
+            logger.error(f"Agent '{agent.name}' already has parent '{agent._parent}', skipping")
+            return
         agent._parent = self.name
         self._children.append(agent)
         if self._registry:
