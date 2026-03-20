@@ -701,7 +701,9 @@ class BaseAgent(BaseObject, BusSubscriber):
             The generated task_id shared by all agents in the group.
         """
         agent_names = [a.name for a in agents]
-        task_id = self._create_task_group(agent_names, timeout=timeout, cancel_on_error=cancel_on_error)
+        task_id = self._create_task_group(
+            agent_names, timeout=timeout, cancel_on_error=cancel_on_error
+        )
 
         for agent in agents:
             await self.add_agent(agent)
@@ -733,7 +735,9 @@ class BaseAgent(BaseObject, BusSubscriber):
         Returns:
             The generated task_id shared by all agents in the group.
         """
-        task_id = self._create_task_group(list(agent_names), timeout=timeout, cancel_on_error=cancel_on_error)
+        task_id = self._create_task_group(
+            list(agent_names), timeout=timeout, cancel_on_error=cancel_on_error
+        )
 
         for name in agent_names:
             await self._send_task_request(name, task_id, payload)
@@ -927,7 +931,9 @@ class BaseAgent(BaseObject, BusSubscriber):
     ) -> str:
         """Create a task group and return the generated task_id."""
         task_id = str(uuid.uuid4())
-        group = TaskGroup(task_id=task_id, agent_names=set(agent_names), cancel_on_error=cancel_on_error)
+        group = TaskGroup(
+            task_id=task_id, agent_names=set(agent_names), cancel_on_error=cancel_on_error
+        )
         self._task_groups[task_id] = group
 
         if timeout is not None:
