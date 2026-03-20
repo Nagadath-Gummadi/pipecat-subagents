@@ -99,7 +99,15 @@ class _BusEdgeProcessor(FrameProcessor, BusSubscriber):
     them into the pipeline.
     """
 
-    def __init__(self, *, bus, agent, direction, exclude_frames=None, **kwargs):
+    def __init__(
+        self,
+        *,
+        bus: AgentBus,
+        agent: "BaseAgent",
+        direction: FrameDirection,
+        exclude_frames: Optional[tuple[type[Frame], ...]] = None,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self._bus = bus
         self._agent = agent
@@ -227,22 +235,36 @@ class BaseAgent(BaseObject, BusSubscriber):
                 when ``bridged=True``. Lifecycle frames are always excluded.
         """
         super().__init__(name=name)
+
+        # Bus and bridge. When bridged, edge processors wrap the pipeline
+        # to route frames to/from the bus.
         self._bus = bus
-        self._active = active
         self._bridged = bridged
         self._exclude_frames = exclude_frames
+
+        # Activation. Pending activation is deferred until the pipeline
+        # starts, then on_activated fires.
+        self._active = active
+        self._pending_activation = active
+        self._activation_args: Optional[dict] = None
+
+        # Agent lifecycle. Parent/children form a tree. The pipeline task
+        # runs the agent's pipeline. Finished is set when the agent stops.
         self._parent: Optional[str] = None
-        self._task: Optional[PipelineTask] = None
         self._children: list["BaseAgent"] = []
-        self._finished: asyncio.Event = asyncio.Event()
+        self._task: Optional[PipelineTask] = None
         self._pipeline_started = False
+        self._finished: asyncio.Event = asyncio.Event()
+
+        # Shared infrastructure, set by the runner via set_registry()
+        # and set_task_manager().
         self._registry: Optional[AgentRegistry] = None
         self._task_manager: Optional[TaskManager] = None
 
-        # Task state (as worker)
+        # Task coordination. Worker state tracks the current task being
+        # worked on. Requester state tracks task groups launched by this agent.
         self._task_id: Optional[str] = None
         self._task_requester: Optional[str] = None
-        # Task state (as requester)
         self._task_groups: dict[str, TaskGroup] = {}
 
         # This agent's lifecycle
@@ -999,6 +1021,7 @@ class BaseAgent(BaseObject, BusSubscriber):
         await self.on_started()
         await self._call_event_handler("on_started")
         await self._register_ready()
+        await self._maybe_activate()
 
     async def _stop(self) -> None:
         """Signal that this agent has stopped.
@@ -1086,15 +1109,18 @@ class BaseAgent(BaseObject, BusSubscriber):
         await self.cancel_task(task_id, reason="timeout")
 
     async def _handle_agent_activate(self, message: BusActivateAgentMessage) -> None:
-        """Activate this agent.
+        """Handle an activation message.
+
+        Stores the activation arguments and marks the agent as pending
+        activation, then delegates to ``_maybe_activate()``.
 
         Args:
             message: The ``BusActivateAgentMessage`` requesting activation.
         """
         logger.debug(f"Agent '{self}': activated")
-        self._active = True
-        await self.on_activated(message.args)
-        await self._call_event_handler("on_activated", message.args)
+        self._activation_args = message.args
+        self._pending_activation = True
+        await self._maybe_activate()
 
     async def _handle_agent_deactivate(self, message: BusDeactivateAgentMessage) -> None:
         """Deactivate this agent.
@@ -1232,3 +1258,12 @@ class BaseAgent(BaseObject, BusSubscriber):
                 del self._task_groups[task_id]
                 await self.on_task_completed(task_id, group.responses)
                 await self._call_event_handler("on_task_completed", task_id, group.responses)
+
+    async def _maybe_activate(self) -> None:
+        """Activate the agent, call on_agent_activated, and fire event handlers."""
+        if self._pipeline_started and self._pending_activation:
+            logger.debug(f"Agent '{self}': activated")
+            self._active = True
+            self._pending_activation = False
+            await self.on_activated(self._activation_args)
+            await self._call_event_handler("on_activated", self._activation_args)
