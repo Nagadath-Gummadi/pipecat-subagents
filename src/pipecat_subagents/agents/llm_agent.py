@@ -81,7 +81,7 @@ class LLMAgent(BaseAgent):
         name: str,
         *,
         bus: AgentBus,
-        active: bool = False,
+        active: bool = True,
         bridged: bool = False,
     ):
         """Initialize the LLMAgent.
@@ -98,7 +98,7 @@ class LLMAgent(BaseAgent):
             bus=bus,
             active=active,
             bridged=bridged,
-            exclude_frames=(PipelineFlushFrame,) if bridged else None,
+            exclude_frames=(PipelineFlushFrame,),
         )
         self._llm: Optional[LLMService] = None
         self._flush_done: asyncio.Event = asyncio.Event()

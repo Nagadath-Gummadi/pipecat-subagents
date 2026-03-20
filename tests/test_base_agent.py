@@ -131,22 +131,21 @@ class TestBaseAgentLifecycle(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(handoff_args_received), 1)
         self.assertIs(handoff_args_received[0], args)
 
-    async def test_active_true_starts_active(self):
-        """active=True means the agent starts active without on_activated."""
+    async def test_active_true_fires_on_activated(self):
+        """active=True fires on_activated after pipeline starts."""
         bus = self.bus
         agent = BridgedStubAgent("test", bus=bus, active=True)
 
-        handoff_fired = False
+        activated = asyncio.Event()
 
         @agent.event_handler("on_activated")
-        async def on_handoff(agent, args):
-            nonlocal handoff_fired
-            handoff_fired = True
+        async def on_activated(agent, args):
+            activated.set()
 
         task = await agent.create_pipeline_task()
 
         async def wait_and_end():
-            await asyncio.sleep(0.05)
+            await asyncio.wait_for(activated.wait(), timeout=2.0)
             await task.queue_frame(EndFrame())
 
         await bus.start()
@@ -155,7 +154,7 @@ class TestBaseAgentLifecycle(unittest.IsolatedAsyncioTestCase):
         await bus.stop()
 
         self.assertTrue(agent.active)
-        self.assertFalse(handoff_fired)
+        self.assertTrue(activated.is_set())
 
     async def test_handoff_to_sends_activate_and_deactivates(self):
         """handoff_to() sends BusActivateAgentMessage and deactivates self."""
