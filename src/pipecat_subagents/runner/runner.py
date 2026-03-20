@@ -256,9 +256,9 @@ class AgentRunner(BaseObject, BusSubscriber):
             # Child agent: parent handles it via its own watch
             return
 
-        # Root agent: broadcast to all local agents
+        # Root agent: broadcast to other local root agents
         for other in self._agents.values():
-            if other.name != agent_data.agent_name:
+            if other.name != agent_data.agent_name and other.parent is None:
                 await other._on_watched_agent_ready(agent_data)
 
         await self._send_registry()

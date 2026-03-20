@@ -293,7 +293,7 @@ class BaseAgent(BaseObject, BusSubscriber):
         Args:
             agent_info: Information about the ready agent.
         """
-        logger.debug(f"Agent '{agent_info.agent_name}' ready")
+        logger.debug(f"Agent '{self}': agent '{agent_info.agent_name}' ready")
 
     async def on_agent_error(self, error_info: AgentErrorData) -> None:
         """Called when a child agent reports an error.
