@@ -9,6 +9,7 @@ import unittest
 
 from pipecat.frames.frames import TextFrame
 from pipecat.processors.frame_processor import FrameDirection
+from pipecat.utils.asyncio.task_manager import TaskManager, TaskManagerParams
 
 from pipecat_subagents.bus import (
     BusAddAgentMessage,
@@ -74,15 +75,20 @@ class FakeRedis:
             ps.inject(channel, data)
 
 
+def create_test_redis_bus():
+    """Create a RedisBus with fake Redis and TaskManager for testing."""
+    redis = FakeRedis()
+    serializer = JSONMessageSerializer()
+    bus = RedisBus(redis=redis, serializer=serializer, channel="test:bus")
+    tm = TaskManager()
+    tm.setup(TaskManagerParams(loop=asyncio.get_running_loop()))
+    bus.set_task_manager(tm)
+    return bus, redis, serializer
+
+
 class TestRedisBus(unittest.IsolatedAsyncioTestCase):
-    def setUp(self):
-        self.redis = FakeRedis()
-        self.serializer = JSONMessageSerializer()
-        self.bus = RedisBus(
-            redis=self.redis,
-            serializer=self.serializer,
-            channel="test:bus",
-        )
+    async def asyncSetUp(self):
+        self.bus, self.redis, self.serializer = create_test_redis_bus()
 
     async def test_send_publishes_to_redis(self):
         """send() serializes and publishes to the Redis channel."""
