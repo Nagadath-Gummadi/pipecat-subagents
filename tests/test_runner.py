@@ -41,7 +41,7 @@ class TestAgentRunner(unittest.IsolatedAsyncioTestCase):
         await runner.add_agent(StubAgent("agent_a", bus=bus))
 
     async def test_run_starts_bus_and_agents(self):
-        """run() starts bus, starts all agents, fires on_started."""
+        """run() starts bus, starts all agents, fires on_ready."""
         runner = AgentRunner(handle_sigint=False)
         bus = runner.bus
         agent = StubAgent("agent_a", bus=bus)
@@ -49,8 +49,8 @@ class TestAgentRunner(unittest.IsolatedAsyncioTestCase):
 
         runner_started = asyncio.Event()
 
-        @runner.event_handler("on_started")
-        async def on_started(runner):
+        @runner.event_handler("on_ready")
+        async def on_ready(runner):
             runner_started.set()
             # Immediately end to unblock run()
             await runner.end()
@@ -66,8 +66,8 @@ class TestAgentRunner(unittest.IsolatedAsyncioTestCase):
         agent = StubAgent("agent_a", bus=bus)
         await runner.add_agent(agent)
 
-        @runner.event_handler("on_started")
-        async def on_started(runner):
+        @runner.event_handler("on_ready")
+        async def on_ready(runner):
             await runner.end(reason="first")
             await runner.end(reason="second")  # should be no-op
 
@@ -81,8 +81,8 @@ class TestAgentRunner(unittest.IsolatedAsyncioTestCase):
         agent = StubAgent("agent_a", bus=bus)
         await runner.add_agent(agent)
 
-        @runner.event_handler("on_started")
-        async def on_started(runner):
+        @runner.event_handler("on_ready")
+        async def on_ready(runner):
             await runner.cancel(reason="first")
             await runner.cancel(reason="second")  # should be no-op
 
@@ -152,8 +152,8 @@ class TestAgentRunner(unittest.IsolatedAsyncioTestCase):
         agent = StubAgent("agent_a", bus=bus)
         await runner.add_agent(agent)
 
-        @runner.event_handler("on_started")
-        async def on_started(runner):
+        @runner.event_handler("on_ready")
+        async def on_ready(runner):
             # Simulate an agent sending BusEndMessage
             await bus.send(BusEndMessage(source="agent_a"))
 
@@ -167,8 +167,8 @@ class TestAgentRunner(unittest.IsolatedAsyncioTestCase):
         agent = StubAgent("agent_a", bus=bus)
         await runner.add_agent(agent)
 
-        @runner.event_handler("on_started")
-        async def on_started(runner):
+        @runner.event_handler("on_ready")
+        async def on_ready(runner):
             await bus.send(BusCancelMessage(source="agent_a"))
 
         try:
@@ -185,8 +185,8 @@ class TestAgentRunner(unittest.IsolatedAsyncioTestCase):
 
         agent_b = StubAgent("agent_b", bus=bus)
 
-        @runner.event_handler("on_started")
-        async def on_started(runner):
+        @runner.event_handler("on_ready")
+        async def on_ready(runner):
             await bus.send(BusAddAgentMessage(source="agent_a", agent=agent_b))
             await asyncio.sleep(0.1)
             await runner.end()

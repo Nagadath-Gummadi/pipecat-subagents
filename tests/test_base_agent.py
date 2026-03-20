@@ -223,15 +223,15 @@ class TestBaseAgentLifecycle(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(add_msgs), 1)
         self.assertIs(add_msgs[0].agent, new_agent)
 
-    async def test_on_started_event(self):
-        """on_started fires after pipeline starts."""
+    async def test_on_ready_event(self):
+        """on_ready fires after pipeline starts."""
         bus = self.bus
         agent = StubAgent("test", bus=bus)
 
         started = asyncio.Event()
 
-        @agent.event_handler("on_started")
-        async def on_started(agent):
+        @agent.event_handler("on_ready")
+        async def on_ready(agent):
             started.set()
 
         task = await agent.create_pipeline_task()

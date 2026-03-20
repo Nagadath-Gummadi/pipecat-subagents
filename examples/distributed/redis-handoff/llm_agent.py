@@ -76,8 +76,8 @@ class AcmeLLMAgent(LLMAgent):
         self._system_instruction = system_instruction
         self._watch_agents = watch_agents
 
-    async def on_started(self) -> None:
-        await super().on_started()
+    async def on_ready(self) -> None:
+        await super().on_ready()
         for agent_name in self._watch_agents:
             await self.watch_agent(agent_name)
 

@@ -159,7 +159,7 @@ class BaseAgent(BaseObject, BusSubscriber):
 
     Overridable lifecycle methods (always call ``super()``):
 
-    - ``on_started()``: Called once when the agent is ready.
+    - ``on_ready()``: Called once when the agent is ready.
     - ``on_activated(args)``: Called when this agent is activated.
     - ``on_deactivated()``: Called when this agent is deactivated.
     - ``on_agent_ready(agent_info)``: Called when another agent is ready
@@ -189,7 +189,7 @@ class BaseAgent(BaseObject, BusSubscriber):
 
     Event handlers:
 
-    - on_started(agent)
+    - on_ready(agent)
     - on_activated(agent, args)
     - on_deactivated(agent)
     - on_agent_ready(agent, agent_info)
@@ -208,8 +208,8 @@ class BaseAgent(BaseObject, BusSubscriber):
 
         agent = MyAgent(name="my_agent", bus=bus)
 
-        @agent.event_handler("on_started")
-        async def on_started(agent):
+        @agent.event_handler("on_ready")
+        async def on_ready(agent):
             logger.info("Agent pipeline is ready")
     """
 
@@ -268,7 +268,7 @@ class BaseAgent(BaseObject, BusSubscriber):
         self._task_groups: dict[str, TaskGroup] = {}
 
         # This agent's lifecycle
-        self._register_event_handler("on_started")
+        self._register_event_handler("on_ready")
         self._register_event_handler("on_error")
         self._register_event_handler("on_activated")
         self._register_event_handler("on_deactivated")
@@ -344,7 +344,7 @@ class BaseAgent(BaseObject, BusSubscriber):
         """The ID of the task this agent is currently working on."""
         return self._task_id
 
-    async def on_started(self) -> None:
+    async def on_ready(self) -> None:
         """Called once when the agent is ready."""
         pass
 
@@ -1018,8 +1018,8 @@ class BaseAgent(BaseObject, BusSubscriber):
         Called automatically when the pipeline starts, or directly by
         ``create_pipeline_task()`` for pipeline-less agents.
         """
-        await self.on_started()
-        await self._call_event_handler("on_started")
+        await self.on_ready()
+        await self._call_event_handler("on_ready")
         await self._register_ready()
         await self._maybe_activate()
 
@@ -1040,7 +1040,7 @@ class BaseAgent(BaseObject, BusSubscriber):
     async def _register_ready(self) -> None:
         """Register this agent as ready in the shared registry.
 
-        Called automatically after ``on_started()`` completes.
+        Called automatically after ``on_ready()`` completes.
         The registry notifies watchers (parent for children, runner
         for root agents).
         """
