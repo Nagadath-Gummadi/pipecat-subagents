@@ -30,7 +30,7 @@ class TaskStatus(str, Enum):
 
 
 @dataclass
-class RegisteredAgentData:
+class AgentReadyData:
     """Information about a registered agent.
 
     Parameters:
@@ -40,3 +40,16 @@ class RegisteredAgentData:
 
     agent_name: str
     runner: str
+
+
+@dataclass
+class AgentErrorData:
+    """Information about an agent error.
+
+    Parameters:
+        agent_name: The name of the agent that errored.
+        error: Description of the error.
+    """
+
+    agent_name: str
+    error: str

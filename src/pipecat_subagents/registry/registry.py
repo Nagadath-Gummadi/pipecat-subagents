@@ -11,9 +11,9 @@ from typing import Callable, Coroutine, Optional
 
 from loguru import logger
 
-from pipecat_subagents.types import RegisteredAgentData
+from pipecat_subagents.types import AgentReadyData
 
-WatchHandler = Callable[[RegisteredAgentData], Coroutine]
+WatchHandler = Callable[[AgentReadyData], Coroutine]
 
 
 class AgentRegistry:
@@ -36,8 +36,8 @@ class AgentRegistry:
             runner_name: Name of the runner that owns this registry.
         """
         self._runner_name = runner_name
-        self._local_agents: dict[str, RegisteredAgentData] = {}
-        self._remote_runners: dict[str, dict[str, RegisteredAgentData]] = defaultdict(dict)
+        self._local_agents: dict[str, AgentReadyData] = {}
+        self._remote_runners: dict[str, dict[str, AgentReadyData]] = defaultdict(dict)
         self._watches: dict[str, list[WatchHandler]] = defaultdict(list)
 
     @property
@@ -58,14 +58,14 @@ class AgentRegistry:
             result.extend(agents.keys())
         return result
 
-    def get(self, agent_name: str) -> Optional[RegisteredAgentData]:
+    def get(self, agent_name: str) -> Optional[AgentReadyData]:
         """Look up a registered agent by name.
 
         Args:
             agent_name: The agent name to look up.
 
         Returns:
-            The agent's ``RegisteredAgentData``, or None if not found.
+            The agent's ``AgentReadyData``, or None if not found.
         """
         if agent_name in self._local_agents:
             return self._local_agents[agent_name]
@@ -86,7 +86,7 @@ class AgentRegistry:
         """
         self._watches[agent_name].append(handler)
 
-    async def register(self, agent_data: RegisteredAgentData) -> bool:
+    async def register(self, agent_data: AgentReadyData) -> bool:
         """Register an agent. Returns True if the agent was new.
 
         If the agent is already registered, this is a no-op and returns
@@ -110,7 +110,7 @@ class AgentRegistry:
         await self._notify(agent_data)
         return True
 
-    async def _notify(self, agent_data: RegisteredAgentData) -> None:
+    async def _notify(self, agent_data: AgentReadyData) -> None:
         """Notify watchers of a new registration."""
         for handler in self._watches.get(agent_data.agent_name, []):
             await handler(agent_data)

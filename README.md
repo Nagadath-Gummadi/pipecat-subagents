@@ -118,10 +118,10 @@ Hooks about this agent's own state.
 
 Hooks about other agents in the system.
 
-| Hook                                | When it fires                                       |
-|-------------------------------------|-----------------------------------------------------|
-| `on_agent_ready(agent_info)`        | Another agent is ready to receive messages.         |
-| `on_agent_error(agent_name, error)` | A child agent reported an error via `send_error()`. |
+| Hook                         | When it fires                                       |
+|------------------------------|-----------------------------------------------------|
+| `on_agent_ready(ready_info)` | Another agent is ready to receive messages.         |
+| `on_agent_error(error_info)` | A child agent reported an error via `send_error()`. |
 
 ### Tasks
 

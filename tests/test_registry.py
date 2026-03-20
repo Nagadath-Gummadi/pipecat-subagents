@@ -7,7 +7,7 @@
 import unittest
 
 from pipecat_subagents.registry import AgentRegistry
-from pipecat_subagents.types import RegisteredAgentData
+from pipecat_subagents.types import AgentReadyData
 
 
 class TestAgentRegistry(unittest.IsolatedAsyncioTestCase):
@@ -16,7 +16,7 @@ class TestAgentRegistry(unittest.IsolatedAsyncioTestCase):
 
     async def test_register_local_agent(self):
         """Local agent is registered and appears in local_agents."""
-        data = RegisteredAgentData(agent_name="greeter", runner="runner_a")
+        data = AgentReadyData(agent_name="greeter", runner="runner_a")
         result = await self.registry.register(data)
 
         self.assertTrue(result)
@@ -25,7 +25,7 @@ class TestAgentRegistry(unittest.IsolatedAsyncioTestCase):
 
     async def test_register_remote_agent(self):
         """Remote agent is registered and appears in remote_agents."""
-        data = RegisteredAgentData(agent_name="support", runner="runner_b")
+        data = AgentReadyData(agent_name="support", runner="runner_b")
         result = await self.registry.register(data)
 
         self.assertTrue(result)
@@ -34,7 +34,7 @@ class TestAgentRegistry(unittest.IsolatedAsyncioTestCase):
 
     async def test_duplicate_registration_returns_false(self):
         """Registering the same agent twice returns False."""
-        data = RegisteredAgentData(agent_name="greeter", runner="runner_a")
+        data = AgentReadyData(agent_name="greeter", runner="runner_a")
         first = await self.registry.register(data)
         second = await self.registry.register(data)
 
@@ -44,7 +44,7 @@ class TestAgentRegistry(unittest.IsolatedAsyncioTestCase):
 
     async def test_get_local_agent(self):
         """get() returns data for a local agent."""
-        data = RegisteredAgentData(agent_name="greeter", runner="runner_a")
+        data = AgentReadyData(agent_name="greeter", runner="runner_a")
         await self.registry.register(data)
 
         result = self.registry.get("greeter")
@@ -52,7 +52,7 @@ class TestAgentRegistry(unittest.IsolatedAsyncioTestCase):
 
     async def test_get_remote_agent(self):
         """get() returns data for a remote agent."""
-        data = RegisteredAgentData(agent_name="support", runner="runner_b")
+        data = AgentReadyData(agent_name="support", runner="runner_b")
         await self.registry.register(data)
 
         result = self.registry.get("support")
@@ -64,7 +64,7 @@ class TestAgentRegistry(unittest.IsolatedAsyncioTestCase):
 
     async def test_contains(self):
         """__contains__ works for registered and unregistered agents."""
-        data = RegisteredAgentData(agent_name="greeter", runner="runner_a")
+        data = AgentReadyData(agent_name="greeter", runner="runner_a")
         await self.registry.register(data)
 
         self.assertIn("greeter", self.registry)
@@ -79,7 +79,7 @@ class TestAgentRegistry(unittest.IsolatedAsyncioTestCase):
 
         self.registry.watch("greeter", handler)
 
-        data = RegisteredAgentData(agent_name="greeter", runner="runner_a")
+        data = AgentReadyData(agent_name="greeter", runner="runner_a")
         await self.registry.register(data)
 
         self.assertEqual(len(received), 1)
@@ -94,7 +94,7 @@ class TestAgentRegistry(unittest.IsolatedAsyncioTestCase):
 
         self.registry.watch("greeter", handler)
 
-        data = RegisteredAgentData(agent_name="support", runner="runner_a")
+        data = AgentReadyData(agent_name="support", runner="runner_a")
         await self.registry.register(data)
 
         self.assertEqual(len(received), 0)
@@ -108,7 +108,7 @@ class TestAgentRegistry(unittest.IsolatedAsyncioTestCase):
 
         self.registry.watch("greeter", handler)
 
-        data = RegisteredAgentData(agent_name="greeter", runner="runner_a")
+        data = AgentReadyData(agent_name="greeter", runner="runner_a")
         await self.registry.register(data)
         await self.registry.register(data)
 
@@ -128,7 +128,7 @@ class TestAgentRegistry(unittest.IsolatedAsyncioTestCase):
         self.registry.watch("greeter", handler_a)
         self.registry.watch("greeter", handler_b)
 
-        data = RegisteredAgentData(agent_name="greeter", runner="runner_a")
+        data = AgentReadyData(agent_name="greeter", runner="runner_a")
         await self.registry.register(data)
 
         self.assertEqual(len(received_a), 1)
@@ -140,8 +140,8 @@ class TestAgentRegistry(unittest.IsolatedAsyncioTestCase):
 
     async def test_multiple_remote_runners(self):
         """Agents from multiple remote runners are tracked separately."""
-        data_b = RegisteredAgentData(agent_name="agent_b", runner="runner_b")
-        data_c = RegisteredAgentData(agent_name="agent_c", runner="runner_c")
+        data_b = AgentReadyData(agent_name="agent_b", runner="runner_b")
+        data_c = AgentReadyData(agent_name="agent_c", runner="runner_c")
         await self.registry.register(data_b)
         await self.registry.register(data_c)
 

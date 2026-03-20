@@ -41,7 +41,7 @@ from pipecat_subagents.agents import BaseAgent, LLMActivationArgs
 from pipecat_subagents.bus import AgentBus, BusBridgeProcessor
 from pipecat_subagents.bus.network.redis import RedisBus
 from pipecat_subagents.runner import AgentRunner
-from pipecat_subagents.types import RegisteredAgentData
+from pipecat_subagents.types import AgentReadyData
 
 load_dotenv(override=True)
 
@@ -74,7 +74,7 @@ class AcmeAgent(BaseAgent):
         await super().on_started()
         await self.watch_agent("greeter")
 
-    async def on_agent_ready(self, agent_info: RegisteredAgentData) -> None:
+    async def on_agent_ready(self, agent_info: AgentReadyData) -> None:
         self._greeter_registered = True
         await self._maybe_activate_greeter()
 

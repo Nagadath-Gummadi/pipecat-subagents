@@ -28,7 +28,7 @@ from pipecat_subagents.bus import (
 )
 from pipecat_subagents.bus.subscriber import BusSubscriber
 from pipecat_subagents.registry import AgentRegistry
-from pipecat_subagents.types import RegisteredAgentData
+from pipecat_subagents.types import AgentReadyData
 
 
 class AgentRunner(BaseObject, BusSubscriber):
@@ -238,7 +238,7 @@ class AgentRunner(BaseObject, BusSubscriber):
         name = task.get_name().removeprefix("agent_")
         self._running_agent_tasks.pop(name, None)
 
-    async def _on_agent_ready(self, agent_data: RegisteredAgentData) -> None:
+    async def _on_agent_ready(self, agent_data: AgentReadyData) -> None:
         """Called when a local agent registers as ready.
 
         For root agents, broadcasts ``on_agent_ready`` to all local
@@ -286,7 +286,7 @@ class AgentRunner(BaseObject, BusSubscriber):
         )
         for agent_name in message.agents:
             await self._registry.register(
-                RegisteredAgentData(agent_name=agent_name, runner=message.runner)
+                AgentReadyData(agent_name=agent_name, runner=message.runner)
             )
         if message.runner not in self._known_runners:
             self._known_runners.add(message.runner)

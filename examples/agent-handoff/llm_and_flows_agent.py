@@ -53,7 +53,7 @@ from pipecat_subagents.agents import (
 )
 from pipecat_subagents.bus import AgentBus, BusBridgeProcessor
 from pipecat_subagents.runner import AgentRunner
-from pipecat_subagents.types import RegisteredAgentData
+from pipecat_subagents.types import AgentReadyData
 
 load_dotenv(override=True)
 
@@ -268,7 +268,7 @@ class RestaurantAgent(BaseAgent):
         super().__init__(name, bus=bus)
         self._transport = transport
 
-    async def on_agent_ready(self, agent_info: RegisteredAgentData) -> None:
+    async def on_agent_ready(self, agent_info: AgentReadyData) -> None:
         if agent_info.agent_name != "router":
             return
         await self.activate_agent(

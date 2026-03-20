@@ -54,7 +54,7 @@ from pipecat_subagents.bus import (
 from pipecat_subagents.bus.messages import BusFrameMessage
 from pipecat_subagents.bus.subscriber import BusSubscriber
 from pipecat_subagents.registry import AgentRegistry
-from pipecat_subagents.types import RegisteredAgentData, TaskStatus
+from pipecat_subagents.types import AgentErrorData, AgentReadyData, TaskStatus
 
 
 class ActivationArgs(BaseModel, extra="ignore"):
@@ -283,7 +283,7 @@ class BaseAgent(BaseObject, BusSubscriber):
         """
         pass
 
-    async def on_agent_ready(self, agent_info: RegisteredAgentData) -> None:
+    async def on_agent_ready(self, agent_info: AgentReadyData) -> None:
         """Called when another agent is ready to receive messages.
 
         For local root agents this fires automatically. For remote agents
@@ -295,12 +295,11 @@ class BaseAgent(BaseObject, BusSubscriber):
         """
         logger.debug(f"Agent '{agent_info.agent_name}' ready")
 
-    async def on_agent_error(self, agent_name: str, error: str) -> None:
-        """Called when a child or watched agent reports an error.
+    async def on_agent_error(self, error_info: AgentErrorData) -> None:
+        """Called when a child agent reports an error.
 
         Args:
-            agent_name: The name of the agent that errored.
-            error: Description of the error.
+            error_info: Information about the error.
         """
         pass
 
@@ -907,13 +906,13 @@ class BaseAgent(BaseObject, BusSubscriber):
         """
         if self._registry:
             await self._registry.register(
-                RegisteredAgentData(
+                AgentReadyData(
                     agent_name=self.name,
                     runner=self._registry.runner_name,
                 )
             )
 
-    async def _on_watched_agent_ready(self, agent_data: RegisteredAgentData) -> None:
+    async def _on_watched_agent_ready(self, agent_data: AgentReadyData) -> None:
         """Called when a watched agent is ready.
 
         Proxies to ``on_agent_ready``.
@@ -954,8 +953,9 @@ class BaseAgent(BaseObject, BusSubscriber):
         """Handle an error reported by a child or remote agent."""
         child_names = {child.name for child in self._children}
         if message.source in child_names:
-            await self.on_agent_error(message.source, message.error)
-            await self._call_event_handler("on_agent_error", message.source, message.error)
+            error_info = AgentErrorData(agent_name=message.source, error=message.error)
+            await self.on_agent_error(error_info)
+            await self._call_event_handler("on_agent_error", error_info)
 
     async def _task_timeout(self, task_id: str, timeout: float) -> None:
         try:
