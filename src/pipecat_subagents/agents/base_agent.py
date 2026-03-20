@@ -23,10 +23,11 @@ from pipecat.frames.frames import (
     ErrorFrame,
     Frame,
     StartFrame,
+    StopFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.task import PipelineTask
-from pipecat.processors.frame_processor import FrameDirection
+from pipecat.processors.frame_processor import FrameDirection, FrameProcessor, FrameProcessorSetup
 from pipecat.utils.asyncio.task_manager import TaskManager
 from pipecat.utils.base_object import BaseObject
 from pydantic import BaseModel
@@ -85,6 +86,60 @@ class TaskGroup:
     responses: dict[str, dict] = field(default_factory=dict)
     timeout_task: Optional[asyncio.Task] = None
     cancel_on_error: bool = True
+
+
+_LIFECYCLE_FRAMES = (StartFrame, EndFrame, CancelFrame, StopFrame)
+
+
+class _BusEdgeProcessor(FrameProcessor, BusSubscriber):
+    """Pipeline edge that bridges pipeline frames and bus messages.
+
+    Captures pipeline frames traveling in ``direction`` and sends them to the
+    bus. Receives bus frames traveling in the opposite direction and pushes
+    them into the pipeline.
+    """
+
+    def __init__(self, *, bus, agent, direction, exclude_frames=None, **kwargs):
+        super().__init__(**kwargs)
+        self._bus = bus
+        self._agent = agent
+        self._direction = direction
+        self._exclude_frames = exclude_frames or ()
+
+    async def setup(self, setup: FrameProcessorSetup):
+        await super().setup(setup)
+        await self._bus.subscribe(self)
+
+    async def cleanup(self):
+        await super().cleanup()
+        await self._bus.unsubscribe(self)
+
+    async def process_frame(self, frame, direction):
+        await super().process_frame(frame, direction)
+        await self.push_frame(frame, direction)
+
+        if direction != self._direction:
+            return
+        if isinstance(frame, _LIFECYCLE_FRAMES):
+            return
+        if isinstance(frame, self._exclude_frames):
+            return
+        await self._bus.send(
+            BusFrameMessage(source=self._agent.name, frame=frame, direction=direction)
+        )
+
+    async def on_bus_message(self, message):
+        if not isinstance(message, BusFrameMessage):
+            return
+        if message.source == self._agent.name:
+            return
+        if message.direction == self._direction:
+            return
+        if not self._agent.active:
+            return
+        if message.target and message.target != self._agent.name:
+            return
+        await self.push_frame(message.frame, message.direction)
 
 
 class BaseAgent(BaseObject, BusSubscriber):
@@ -156,6 +211,8 @@ class BaseAgent(BaseObject, BusSubscriber):
         *,
         bus: AgentBus,
         active: bool = True,
+        bridged: bool = False,
+        exclude_frames: Optional[tuple[type[Frame], ...]] = None,
     ):
         """Initialize the BaseAgent.
 
@@ -163,10 +220,17 @@ class BaseAgent(BaseObject, BusSubscriber):
             name: Unique name for this agent.
             bus: The `AgentBus` for inter-agent communication.
             active: Whether the agent starts active. Defaults to True.
+            bridged: Whether to add edge processors for bus frame routing.
+                When True, the pipeline receives frames from and sends
+                frames to the bus. Defaults to False.
+            exclude_frames: Frame types to exclude from bus forwarding
+                when ``bridged=True``. Lifecycle frames are always excluded.
         """
         super().__init__(name=name)
         self._bus = bus
         self._active = active
+        self._bridged = bridged
+        self._exclude_frames = exclude_frames
         self._parent: Optional[str] = None
         self._task: Optional[PipelineTask] = None
         self._children: list["BaseAgent"] = []
@@ -480,16 +544,31 @@ class BaseAgent(BaseObject, BusSubscriber):
     async def create_pipeline(self, user_pipeline: Pipeline) -> Pipeline:
         """Assemble the final pipeline from the user pipeline.
 
-        This can be overridden to wrap the user pipeline with additional
-        processors.
+        When ``bridged=True``, wraps the pipeline with bus edge processors.
+        Can be overridden to add additional processors.
 
         Args:
             user_pipeline: The pipeline returned by ``build_pipeline()``.
 
         Returns:
             The assembled ``Pipeline``.
-
         """
+        if self._bridged:
+            edge_source = _BusEdgeProcessor(
+                bus=self._bus,
+                agent=self,
+                direction=FrameDirection.UPSTREAM,
+                exclude_frames=self._exclude_frames,
+                name=f"{self.name}::EdgeSource",
+            )
+            edge_sink = _BusEdgeProcessor(
+                bus=self._bus,
+                agent=self,
+                direction=FrameDirection.DOWNSTREAM,
+                exclude_frames=self._exclude_frames,
+                name=f"{self.name}::EdgeSink",
+            )
+            return Pipeline([edge_source, user_pipeline, edge_sink])
         return user_pipeline
 
     def build_pipeline_task(self, pipeline: Pipeline) -> PipelineTask:
@@ -666,6 +745,26 @@ class BaseAgent(BaseObject, BusSubscriber):
             agent_name: The name of the agent to deactivate.
         """
         await self.send_message(BusDeactivateAgentMessage(source=self.name, target=agent_name))
+
+    async def handoff_to(
+        self,
+        agent_name: str,
+        *,
+        args: Union[BaseModel, dict, None] = None,
+    ) -> None:
+        """Hand off to another agent.
+
+        Deactivates this agent and activates the target. For independent
+        control, use ``activate_agent()`` and ``deactivate_agent()`` directly.
+
+        Args:
+            agent_name: The name of the agent to hand off to.
+            args: Optional arguments forwarded to the target agent's
+                ``on_activated`` handler.
+        """
+        if self._active:
+            self._active = False
+        await self.activate_agent(agent_name, args=args)
 
     async def watch_agent(self, agent_name: str) -> None:
         """Request notification when an agent registers.
