@@ -43,6 +43,9 @@ class AgentRunner(BaseObject, BusSubscriber):
     on_started(runner)
         Fired after all registered agents have been started.
 
+    on_error(runner, error)
+        Fired when the runner encounters an error (e.g. failed pipeline creation).
+
     Example::
 
         runner = AgentRunner()
@@ -83,6 +86,7 @@ class AgentRunner(BaseObject, BusSubscriber):
         self._known_runners: set[str] = set()
 
         self._register_event_handler("on_started")
+        self._register_event_handler("on_error")
 
     @property
     def bus(self) -> AgentBus:
@@ -209,10 +213,10 @@ class AgentRunner(BaseObject, BusSubscriber):
         logger.debug(f"AgentRunner '{self}': starting agent '{agent.name}'")
         try:
             pipeline_task = await agent.create_pipeline_task()
-        except Exception:
-            logger.exception(
-                f"AgentRunner '{self}': failed to create pipeline task for agent '{agent.name}'"
-            )
+        except Exception as e:
+            error = f"Failed to create pipeline task for agent '{agent.name}': {e}"
+            logger.exception(f"AgentRunner '{self}': {error}")
+            await self._call_event_handler("on_error", error)
             return
 
         if pipeline_task is None:
