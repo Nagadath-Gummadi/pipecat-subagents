@@ -104,6 +104,14 @@ class AgentRegistry:
         if agent_data.agent_name in target:
             return False
 
+        # Warn if the same name exists on a different runner
+        existing = self.get(agent_data.agent_name)
+        if existing and existing.runner != agent_data.runner:
+            logger.warning(
+                f"Agent '{agent_data.agent_name}' registered on both "
+                f"'{existing.runner}' and '{agent_data.runner}'"
+            )
+
         target[agent_data.agent_name] = agent_data
         locality = "local" if is_local else agent_data.runner
         logger.debug(f"Agent '{agent_data.agent_name}' ready ({locality})")
