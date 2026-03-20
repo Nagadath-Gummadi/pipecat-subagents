@@ -6,7 +6,7 @@
 
 """Flows agent that integrates Pipecat Flows into the multi-agent framework.
 
-Provides the `FlowsDetachedAgent` class that extends `DetachedAgent` with a
+Provides the `FlowsAgent` class that extends `BaseAgent` with a
 FlowManager for structured conversation flows (nodes, functions, transitions,
 actions).
 """
@@ -20,12 +20,12 @@ from pipecat.services.llm_service import LLMService
 from pipecat_flows import ContextStrategyConfig, FlowManager, FlowsFunctionSchema, NodeConfig
 from pipecat_flows.types import FlowsDirectFunction
 
-from pipecat_subagents.agents.detached_agent import DetachedAgent
+from pipecat_subagents.agents.base_agent import BaseAgent
 from pipecat_subagents.agents.tool import _collect_tools
 from pipecat_subagents.bus import AgentBus
 
 
-class FlowsDetachedAgent(DetachedAgent):
+class FlowsAgent(BaseAgent):
     """Agent that uses Pipecat Flows for structured conversation.
 
     Manages a ``FlowManager`` for node-based conversation flows with
@@ -35,7 +35,7 @@ class FlowsDetachedAgent(DetachedAgent):
 
     Example::
 
-        class MyFlowsAgent(FlowsDetachedAgent):
+        class MyFlowsAgent(FlowsAgent):
             def build_llm(self):
                 return OpenAILLMService(api_key="...")
 
@@ -53,7 +53,7 @@ class FlowsDetachedAgent(DetachedAgent):
         global_functions: Optional[List[FlowsFunctionSchema | FlowsDirectFunction]] = None,
         active: bool = False,
     ):
-        """Initialize the FlowsDetachedAgent.
+        """Initialize the FlowsAgent.
 
         Args:
             name: Unique name for this agent.
@@ -70,6 +70,7 @@ class FlowsDetachedAgent(DetachedAgent):
             name,
             bus=bus,
             active=active,
+            bridged=True,
         )
         self._context_aggregator = context_aggregator
         self._context_strategy = context_strategy

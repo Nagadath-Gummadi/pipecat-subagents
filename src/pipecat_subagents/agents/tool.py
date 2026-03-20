@@ -10,11 +10,11 @@
 def tool(fn=None, *, cancel_on_interruption=True):
     """Mark an agent method as a tool.
 
-    On ``LLMDetachedAgent`` subclasses, decorated methods are automatically
+    On ``LLMAgent`` subclasses, decorated methods are automatically
     registered with the LLM via ``register_direct_function`` and
     included in ``build_tools()``.
 
-    On ``FlowsDetachedAgent`` subclasses, decorated methods are automatically
+    On ``FlowsAgent`` subclasses, decorated methods are automatically
     collected as global functions available at every flow node.
 
     Can be used with or without arguments::
@@ -31,7 +31,7 @@ def tool(fn=None, *, cancel_on_interruption=True):
         fn: The function to decorate (when used without arguments).
         cancel_on_interruption: Whether to cancel this tool call when
             an interruption occurs. Defaults to True. Only applies to
-            ``LLMDetachedAgent`` tools.
+            ``LLMAgent`` tools.
     """
 
     def decorator(fn):
