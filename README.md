@@ -110,12 +110,12 @@ Every agent has a unique name passed at construction. Names are used for bus mes
 
 Hooks about this agent's own state.
 
-| Hook                     | When it fires                                  |
-|--------------------------|------------------------------------------------|
-| `on_ready()`             | Agent is ready. Add child agents here.         |
-| `on_error(error, fatal)` | A pipeline error occurred.                     |
-| `on_activated(args)`     | Agent is activated via `activate_agent()`.     |
-| `on_deactivated()`       | Agent is deactivated via `deactivate_agent()`. |
+| Hook                     | When it fires                                           |
+|--------------------------|---------------------------------------------------------|
+| `on_ready()`             | Agent is ready to operate.                              |
+| `on_error(error, fatal)` | A pipeline error occurred.                              |
+| `on_activated(args)`     | Agent is activated via `activate_agent()`.              |
+| `on_deactivated()`       | Agent is deactivated via `deactivate_agent()`.          |
 
 #### Other agent events
 
