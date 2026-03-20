@@ -82,9 +82,9 @@ The runner orchestrates the system: it creates pipeline tasks, manages agent lif
 
 ### Registry and visibility
 
-Only **root agents** (added via `AgentRunner.add_agent()`) are visible across the system. When a root agent becomes ready, the runner announces it to all local agents and to remote runners over the network bus. This same visibility rule applies to error reporting: when a root agent calls `send_error()`, the error is broadcast over the network.
+Only **root agents** (added via `AgentRunner.add_agent()`) are visible across the system. When a root agent becomes ready, the runner announces it to all local agents and to remote runners over the network bus.
 
-**Child agents** (added via `BaseAgent.add_agent()`) are private to their parent. Readiness notifications and errors stay local and never cross the network. Only the parent receives `on_agent_ready()` and `on_agent_error()` for its children.
+**Child agents** (added via `BaseAgent.add_agent()`) are private to their parent. Only the parent is notified when a child is ready via `on_agent_ready()`.
 
 Use `watch_agent(name)` to request notification when a specific agent registers.
 
@@ -126,6 +126,14 @@ Hooks about other agents in the system.
 |------------------------------|-----------------------------------------------------|
 | `on_agent_ready(ready_info)` | Another agent is ready to receive messages.         |
 | `on_agent_error(error_info)` | A child agent reported an error via `send_error()`. |
+
+#### Error handling
+
+Errors are not propagated automatically. When a pipeline error occurs, `on_error(error, fatal)` fires on the agent. The agent decides how to respond: recover, fail a running task via `send_task_response(status=TaskStatus.ERROR)`, or escalate to the parent via `send_error()`.
+
+`send_error()` follows the same visibility rules as readiness: child agent errors stay local (never cross the network), root agent errors are broadcast. The parent receives `on_agent_error(error_info)` for child errors.
+
+For task groups, `start_task(cancel_on_error=True)` (the default) automatically cancels all workers in the group if any worker responds with `ERROR` or `FAILED` status.
 
 ### Tasks
 
