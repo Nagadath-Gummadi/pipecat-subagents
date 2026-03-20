@@ -50,7 +50,7 @@ from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.transports.base_transport import BaseTransport, TransportParams
 from pipecat.transports.daily.transport import DailyParams
 
-from pipecat_subagents.agents import BaseAgent, LLMActivationArgs, LLMDetachedAgent, tool
+from pipecat_subagents.agents import BaseAgent, LLMActivationArgs, LLMAgent, tool
 from pipecat_subagents.bus import AgentBus, BusBridgeProcessor
 from pipecat_subagents.runner import AgentRunner
 from pipecat_subagents.types import AgentReadyData
@@ -69,11 +69,11 @@ transport_params = {
 }
 
 
-class AcmeTTSAgent(LLMDetachedAgent):
+class AcmeTTSAgent(LLMAgent):
     """Base agent for Acme Corp with per-agent TTS voice."""
 
     def __init__(self, name: str, *, bus: AgentBus, voice_id: str):
-        super().__init__(name, bus=bus)
+        super().__init__(name, bus=bus, bridged=True)
         self._voice_id = voice_id
 
     async def build_pipeline(self) -> Pipeline:
@@ -192,8 +192,10 @@ class AcmeAgent(BaseAgent):
         super().__init__(name, bus=bus)
         self._transport = transport
 
-    async def on_agent_ready(self, agent_info: AgentReadyData) -> None:
-        if agent_info.agent_name != "greeter":
+    async def on_agent_ready(self, data: AgentReadyData) -> None:
+        await super().on_agent_ready(data)
+
+        if data.agent_name != "greeter":
             return
         await self.activate_agent(
             "greeter",

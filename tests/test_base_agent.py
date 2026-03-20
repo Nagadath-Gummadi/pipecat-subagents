@@ -15,7 +15,7 @@ from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.utils.asyncio.task_manager import TaskManager, TaskManagerParams
 
 from pipecat_subagents.agents.base_agent import BaseAgent
-from pipecat_subagents.agents.detached_agent import DetachedAgent
+
 from pipecat_subagents.bus import (
     AsyncQueueBus,
     BusActivateAgentMessage,
@@ -57,8 +57,11 @@ class StubAgent(BaseAgent):
         self._finished.set()
 
 
-class DetachedStubAgent(DetachedAgent):
-    """Minimal DetachedAgent subclass for testing."""
+class BridgedStubAgent(BaseAgent):
+    """Minimal BaseAgent subclass with bridged=True for testing."""
+
+    def __init__(self, name, *, bus, active=False):
+        super().__init__(name, bus=bus, active=active, bridged=True)
 
     async def build_pipeline(self) -> Pipeline:
         return Pipeline([IdentityFilter()])
@@ -91,15 +94,15 @@ class TestBaseAgentLifecycle(unittest.IsolatedAsyncioTestCase):
         self.bus, self.tm = create_test_bus()
 
     async def test_agent_starts_inactive_by_default(self):
-        """DetachedAgent is inactive by default."""
+        """Bridged agent is inactive by default."""
         bus = self.bus
-        agent = DetachedStubAgent("test", bus=bus)
+        agent = BridgedStubAgent("test", bus=bus)
         self.assertFalse(agent.active)
 
     async def test_handoff_via_bus_message_after_pipeline_start(self):
         """Agent activates when BusActivateAgentMessage received and pipeline started."""
         bus = self.bus
-        agent = DetachedStubAgent("test", bus=bus)
+        agent = BridgedStubAgent("test", bus=bus)
 
         handoff_done = asyncio.Event()
         handoff_args_received = []
@@ -131,7 +134,7 @@ class TestBaseAgentLifecycle(unittest.IsolatedAsyncioTestCase):
     async def test_active_true_starts_active(self):
         """active=True means the agent starts active without on_activated."""
         bus = self.bus
-        agent = DetachedStubAgent("test", bus=bus, active=True)
+        agent = BridgedStubAgent("test", bus=bus, active=True)
 
         handoff_fired = False
 
@@ -159,7 +162,7 @@ class TestBaseAgentLifecycle(unittest.IsolatedAsyncioTestCase):
         bus = self.bus
         sent = capture_bus(bus)
 
-        agent = DetachedStubAgent("agent_a", bus=bus, active=True)
+        agent = BridgedStubAgent("agent_a", bus=bus, active=True)
 
         await agent.handoff_to("agent_b")
 
@@ -248,7 +251,7 @@ class TestBaseAgentLifecycle(unittest.IsolatedAsyncioTestCase):
     async def test_handoff_deactivates(self):
         """handoff_to() deactivates the calling agent."""
         bus = self.bus
-        agent = DetachedStubAgent("test", bus=bus, active=True)
+        agent = BridgedStubAgent("test", bus=bus, active=True)
 
         self.assertTrue(agent.active)
         await agent.handoff_to("other")
@@ -356,7 +359,7 @@ class TestBaseAgentLifecycle(unittest.IsolatedAsyncioTestCase):
     async def test_self_handoff(self):
         """An agent can handoff to itself via handoff_to(self.name)."""
         bus = self.bus
-        agent = DetachedStubAgent("test", bus=bus, active=True)
+        agent = BridgedStubAgent("test", bus=bus, active=True)
 
         handoff_done = asyncio.Event()
 
@@ -469,8 +472,11 @@ class TestBaseAgentLifecycle(unittest.IsolatedAsyncioTestCase):
         self.assertIn("child_b", targets)
 
 
-class _GeneratingAgent(DetachedAgent):
+class _GeneratingAgent(BaseAgent):
     """Agent whose pipeline generates new frames (for testing edge sinks)."""
+
+    def __init__(self, name, *, bus):
+        super().__init__(name, bus=bus, bridged=True)
 
     async def build_pipeline(self) -> Pipeline:
         return Pipeline([_FrameGenerator()])
@@ -508,7 +514,7 @@ class TestEdgeToBus(unittest.IsolatedAsyncioTestCase):
         bus = self.bus
         sent = capture_bus(bus)
 
-        agent = DetachedStubAgent("agent", bus=bus, active=True)
+        agent = BridgedStubAgent("agent", bus=bus, active=True)
         task = await agent.create_pipeline_task()
 
         async def inject_frame():
@@ -566,7 +572,7 @@ class TestEdgeToBus(unittest.IsolatedAsyncioTestCase):
     async def test_bus_frame_enters_agent_pipeline(self):
         """Bus frame messages enter the pipeline via edge source processor."""
         bus = self.bus
-        agent = DetachedStubAgent("agent", bus=bus, active=True)
+        agent = BridgedStubAgent("agent", bus=bus, active=True)
 
         task = await agent.create_pipeline_task()
 

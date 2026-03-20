@@ -46,9 +46,9 @@ from pipecat_flows import FlowManager, FlowResult, NodeConfig
 
 from pipecat_subagents.agents import (
     BaseAgent,
-    FlowsDetachedAgent,
+    FlowsAgent,
     LLMActivationArgs,
-    LLMDetachedAgent,
+    LLMAgent,
     tool,
 )
 from pipecat_subagents.bus import AgentBus, BusBridgeProcessor
@@ -84,7 +84,7 @@ class MockReservationSystem:
         return is_available, alternatives
 
 
-class ReservationAgent(FlowsDetachedAgent):
+class ReservationAgent(FlowsAgent):
     """Structured reservation flow using Pipecat Flows."""
 
     def __init__(self, name: str, *, bus: AgentBus, context_aggregator, reservation_system):
@@ -212,7 +212,7 @@ class ReservationAgent(FlowsDetachedAgent):
         return {"status": "success"}, self.build_initial_node()
 
 
-class RouterAgent(LLMDetachedAgent):
+class RouterAgent(LLMAgent):
     """Routes the user to the reservation agent or answers general questions."""
 
     def build_llm(self) -> LLMService:
@@ -268,9 +268,12 @@ class RestaurantAgent(BaseAgent):
         super().__init__(name, bus=bus)
         self._transport = transport
 
-    async def on_agent_ready(self, agent_info: AgentReadyData) -> None:
-        if agent_info.agent_name != "router":
+    async def on_agent_ready(self, data: AgentReadyData) -> None:
+        await super().on_agent_ready(data)
+
+        if data.agent_name != "router":
             return
+
         await self.activate_agent(
             "router",
             args=LLMActivationArgs(
@@ -310,7 +313,7 @@ class RestaurantAgent(BaseAgent):
         @self._transport.event_handler("on_client_connected")
         async def on_client_connected(transport, client):
             logger.info("Client connected")
-            router = RouterAgent("router", bus=self.bus)
+            router = RouterAgent("router", bus=self.bus, bridged=True)
             reservation = ReservationAgent(
                 "reservation",
                 bus=self.bus,

@@ -16,24 +16,23 @@ uv run ruff format           # Format
 Agents communicate through a shared `AgentBus`. A typical voice-first system has:
 
 - **Main agent** (`BaseAgent`): owns the transport (STT/TTS) with a `BusBridgeProcessor` where an LLM would normally go.
-- **Voice/LLM agents** (`LLMDetachedAgent`): run their own LLM pipeline, receive frames from the bridge, transfer between each other.
+- **Voice/LLM agents** (`LLMAgent(bridged=True)`): run their own LLM pipeline, receive frames from the bridge, transfer between each other.
 - **Worker agents** (`BaseAgent`): receive tasks, process them, return results.
 
 ### Agent hierarchy
 
 ```
-BaseAgent                 -- pipeline lifecycle, parent-child, tasks, activation
-  DetachedAgent           -- bus frame routing via edge processors, handoff_to()
-    LLMDetachedAgent      -- build_llm(), @tool registration, message injection on activation
-    FlowsDetachedAgent    -- Pipecat Flows integration (node-based conversation)
+BaseAgent(bridged=False)  -- pipeline lifecycle, parent-child, tasks, activation
+BaseAgent(bridged=True)   -- adds edge processors for bus frame routing
+  LLMAgent                -- build_llm(), @tool registration, message injection on activation
+  FlowsAgent              -- Pipecat Flows integration (node-based conversation, always bridged)
 ```
 
 ### Key files
 
-- `src/pipecat_subagents/agents/base_agent.py` -- BaseAgent
-- `src/pipecat_subagents/agents/detached_agent.py` -- DetachedAgent + `_BusEdgeProcessor`
-- `src/pipecat_subagents/agents/llm_detached_agent.py` -- LLMDetachedAgent
-- `src/pipecat_subagents/agents/flows_detached_agent.py` -- FlowsDetachedAgent
+- `src/pipecat_subagents/agents/base_agent.py` -- BaseAgent + `_BusEdgeProcessor`
+- `src/pipecat_subagents/agents/llm_agent.py` -- LLMAgent
+- `src/pipecat_subagents/agents/flows_agent.py` -- FlowsAgent
 - `src/pipecat_subagents/bus/bus.py` -- AgentBus abstract base
 - `src/pipecat_subagents/bus/bridge_processor.py` -- BusBridgeProcessor
 - `src/pipecat_subagents/bus/messages.py` -- All bus message types
@@ -42,11 +41,10 @@ BaseAgent                 -- pipeline lifecycle, parent-child, tasks, activation
 
 ### Activation model
 
-- `active` flag lives on `BaseAgent` (defaults to `True`; `DetachedAgent` overrides to `False`)
+- `active` flag lives on `BaseAgent` (defaults to `True`)
 - `activate_agent(name)` / `deactivate_agent(name)` send bus messages, handled by `BaseAgent`
 - `on_activated(args)` / `on_deactivated()` hooks fire on the target agent
-- `handoff_to(name)` on `DetachedAgent` is a convenience: deactivates self locally, then activates target
-- `active=True` in DetachedAgent constructor just sets the flag; no `on_activated` fires
+- `handoff_to(name)` on `BaseAgent` is a convenience: deactivates self locally, then activates target
 
 ### Registry
 
