@@ -11,13 +11,16 @@ pipeline and automatic tool registration.
 """
 
 import asyncio
+import functools
 from abc import abstractmethod
+from collections import deque
 from dataclasses import dataclass
 from typing import Any, Callable, Optional, Union
 
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.frames.frames import (
     ControlFrame,
+    Frame,
     FunctionCallResultProperties,
     LLMMessagesAppendFrame,
     LLMSetToolsFrame,
@@ -103,6 +106,8 @@ class LLMAgent(BaseAgent):
         self._llm: Optional[LLMService] = None
         self._flush_done: asyncio.Event = asyncio.Event()
         self._flush_handlers_registered: bool = False
+        self._tool_call_inflight: int = 0
+        self._deferred_frames: deque[Frame] = deque()
 
     async def on_activated(self, args: Optional[dict]) -> None:
         """Configure the LLM with tools and activation messages.
@@ -123,6 +128,26 @@ class LLMAgent(BaseAgent):
             await self.queue_frame(
                 LLMMessagesAppendFrame(messages=activation.messages, run_llm=run_llm)
             )
+
+    @property
+    def tool_call_active(self) -> bool:
+        """True when one or more ``@tool`` methods are executing."""
+        return self._tool_call_inflight > 0
+
+    async def queue_frame_after_tools(self, frame: Frame) -> None:
+        """Queue a frame, deferring delivery until all tools complete.
+
+        When tool calls are in progress, the frame is held in an internal
+        queue and delivered automatically once the last tool finishes.
+        When no tools are active, the frame is queued immediately.
+
+        Args:
+            frame: Any ``Frame`` to deliver.
+        """
+        if self._tool_call_inflight > 0:
+            self._deferred_frames.append(frame)
+        else:
+            await self.queue_frame(frame)
 
     def build_tools(self) -> list:
         """Return the tools for this agent's LLM.
@@ -148,6 +173,8 @@ class LLMAgent(BaseAgent):
         """Create the LLM with tools registered.
 
         Calls ``build_llm()`` and registers all ``@tool`` decorated methods.
+        Each tool is automatically wrapped with inflight tracking so that
+        ``queue_frame_after_tools`` can defer frames during tool execution.
         Override to customize the LLM setup.
 
         Returns:
@@ -155,8 +182,9 @@ class LLMAgent(BaseAgent):
         """
         llm = self.build_llm()
         for method in _collect_tools(self):
+            tracked = self._track_tool_call(method)
             llm.register_direct_function(
-                method,
+                tracked,
                 cancel_on_interruption=method.cancel_on_interruption,
             )
         return llm
@@ -209,6 +237,23 @@ class LLMAgent(BaseAgent):
         """
         await self._close_function_call(result_callback)
         await super().handoff_to(agent_name, args=args)
+
+    def _track_tool_call(self, method: Callable) -> Callable:
+        @functools.wraps(method)
+        async def wrapper(params, *args, **kwargs):
+            self._tool_call_inflight += 1
+            try:
+                return await method(params, *args, **kwargs)
+            finally:
+                self._tool_call_inflight = max(0, self._tool_call_inflight - 1)
+                if self._tool_call_inflight == 0:
+                    await self._flush_deferred_frames()
+
+        return wrapper
+
+    async def _flush_deferred_frames(self) -> None:
+        while self._deferred_frames:
+            await self.queue_frame(self._deferred_frames.popleft())
 
     async def _close_function_call(
         self, result_callback: Optional[FunctionCallResultCallback]
