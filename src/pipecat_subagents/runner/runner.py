@@ -8,7 +8,8 @@
 
 import asyncio
 import uuid
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import Coroutine, Optional
 
 from loguru import logger
 from pipecat.pipeline.runner import PipelineRunner
@@ -30,6 +31,20 @@ from pipecat_subagents.bus import (
 from pipecat_subagents.bus.subscriber import BusSubscriber
 from pipecat_subagents.registry import AgentRegistry
 from pipecat_subagents.types import AgentReadyData
+
+
+@dataclass
+class AgentEntry:
+    """An agent registered with the runner and its pipeline task.
+
+    Parameters:
+        agent: The agent instance.
+        task: The asyncio task running the agent's pipeline, or None
+            for pipeline-less agents.
+    """
+
+    agent: BaseAgent
+    task: Optional[asyncio.Task] = field(default=None, repr=False)
 
 
 class AgentRunner(BaseObject, BusSubscriber):
@@ -78,12 +93,11 @@ class AgentRunner(BaseObject, BusSubscriber):
         super().__init__(name=name or f"runner-{uuid.uuid4().hex[:8]}")
         self._bus = bus or AsyncQueueBus()
         self._registry = AgentRegistry(runner_name=self.name)
-
-        self._running: bool = False
-        self._agents: dict[str, BaseAgent] = {}
-        self._running_agent_tasks: dict[str, asyncio.Task] = {}
         self._task_manager = TaskManager()
         self._pipecat_runner = PipelineRunner(handle_sigint=handle_sigint)
+
+        self._running: bool = False
+        self._entries: dict[str, AgentEntry] = {}
         self._shutdown_event = asyncio.Event()
         self._known_runners: set[str] = set()
 
@@ -100,6 +114,36 @@ class AgentRunner(BaseObject, BusSubscriber):
         """The shared agent registry."""
         return self._registry
 
+    def create_asyncio_task(self, coroutine: Coroutine, name: str) -> asyncio.Task:
+        """Create a managed asyncio task.
+
+        Args:
+            coroutine: The coroutine to run.
+            name: Human-readable name for the task (used in logs).
+
+        Returns:
+            The created `asyncio.Task`.
+
+        Raises:
+            RuntimeError: If the task manager has not been set.
+        """
+        if not self._task_manager:
+            raise RuntimeError(f"Agent '{self}': task manager not set")
+        return self._task_manager.create_task(coroutine, name)
+
+    async def cancel_asyncio_task(self, task: asyncio.Task) -> None:
+        """Cancel a managed asyncio task.
+
+        Args:
+            task: The task to cancel.
+
+        Raises:
+            RuntimeError: If the task manager has not been set.
+        """
+        if not self._task_manager:
+            raise RuntimeError(f"Agent '{self}': task manager not set")
+        await self._task_manager.cancel_task(task)
+
     async def on_bus_message(self, message: BusMessage) -> None:
         """Process incoming bus messages for runner-level concerns.
 
@@ -113,9 +157,9 @@ class AgentRunner(BaseObject, BusSubscriber):
         if message.source == self.name:
             return
         if isinstance(message, BusEndMessage):
-            self._create_task(self.end(message.reason), "end")
+            self.create_asyncio_task(self.end(message.reason), "end")
         elif isinstance(message, BusCancelMessage):
-            self._create_task(self.cancel(message.reason), "cancel")
+            self.create_asyncio_task(self.cancel(message.reason), "cancel")
         elif isinstance(message, BusAddAgentMessage) and message.agent:
             await self.add_agent(message.agent)
         elif isinstance(message, BusAgentRegistryMessage):
@@ -130,17 +174,18 @@ class AgentRunner(BaseObject, BusSubscriber):
         Args:
             agent: The agent to add.
         """
-        if agent.name in self._agents:
+        if agent.name in self._entries:
             logger.error(f"AgentRunner '{self}': agent '{agent.name}' already exists, skipping")
             return
         agent.set_registry(self._registry)
         agent.set_task_manager(self._task_manager)
         self._registry.watch(agent.name, self._on_agent_ready)
-        self._agents[agent.name] = agent
+        entry = AgentEntry(agent=agent)
+        self._entries[agent.name] = entry
         logger.debug(f"AgentRunner '{self}': added agent '{agent.name}'")
 
         if self._running:
-            await self._start_agent_task(agent)
+            await self._start_agent_task(entry)
 
     async def run(self) -> None:
         """Start all agents, block until shutdown.
@@ -158,15 +203,15 @@ class AgentRunner(BaseObject, BusSubscriber):
         await self._bus.subscribe(self)
         await self._bus.start()
 
-        for agent in self._agents.values():
-            await self._start_agent_task(agent)
+        for entry in self._entries.values():
+            await self._start_agent_task(entry)
 
         await self._call_event_handler("on_ready")
 
         await self._shutdown_event.wait()
 
         # Wait for remaining agent tasks to finish cleanup
-        remaining = [t for t in self._running_agent_tasks.values() if not t.done()]
+        remaining = [e.task for e in self._entries.values() if e.task and not e.task.done()]
         if remaining:
             await asyncio.gather(*remaining, return_exceptions=True)
 
@@ -187,8 +232,8 @@ class AgentRunner(BaseObject, BusSubscriber):
             return
         logger.debug(f"AgentRunner '{self}': ending gracefully (reason={reason})")
         self._shutdown_event.set()
-        for name, agent in self._agents.items():
-            if agent.parent is None:
+        for name, entry in self._entries.items():
+            if entry.agent.parent is None:
                 await self._bus.send(
                     BusEndAgentMessage(source=self.name, target=name, reason=reason)
                 )
@@ -207,15 +252,16 @@ class AgentRunner(BaseObject, BusSubscriber):
             return
         logger.debug(f"AgentRunner '{self}': cancelling (reason={reason})")
         self._shutdown_event.set()
-        for name, agent in self._agents.items():
-            if agent.parent is None:
+        for name, entry in self._entries.items():
+            if entry.agent.parent is None:
                 await self._bus.send(
                     BusCancelAgentMessage(source=self.name, target=name, reason=reason)
                 )
         await self._pipecat_runner.cancel()
 
-    async def _start_agent_task(self, agent: BaseAgent) -> None:
+    async def _start_agent_task(self, entry: AgentEntry) -> None:
         """Create an agent's pipeline task and start it as a background asyncio task."""
+        agent = entry.agent
         logger.debug(f"AgentRunner '{self}': starting agent '{agent.name}'")
         try:
             pipeline_task = await agent.create_pipeline_task()
@@ -229,26 +275,13 @@ class AgentRunner(BaseObject, BusSubscriber):
             # Pipeline-less agent: already started.
             return
 
-        asyncio_task = self._create_task(
+        entry.task = self.create_asyncio_task(
             self._pipecat_runner.run(pipeline_task),
             f"agent_{agent.name}",
         )
 
-        # Register the agent task.
-        self._running_agent_tasks[agent.name] = asyncio_task
-        asyncio_task.add_done_callback(self._on_agent_task_done)
-
         # Add the task to event loop right away without needing to `await`.
         await asyncio.sleep(0)
-
-    def _create_task(self, coroutine, name: str) -> asyncio.Task:
-        """Create an asyncio task via the task manager."""
-        return self._task_manager.create_task(coroutine, name)
-
-    def _on_agent_task_done(self, task: asyncio.Task) -> None:
-        """Remove a completed agent task."""
-        name = task.get_name().removeprefix("agent_")
-        self._running_agent_tasks.pop(name, None)
 
     async def _on_agent_ready(self, agent_data: AgentReadyData) -> None:
         """Called when a local agent registers as ready.
@@ -261,21 +294,21 @@ class AgentRunner(BaseObject, BusSubscriber):
         if agent_data.runner != self.name:
             return
 
-        agent = self._agents.get(agent_data.agent_name)
-        if not agent or agent.parent is not None:
+        entry = self._entries.get(agent_data.agent_name)
+        if not entry or entry.agent.parent is not None:
             # Child agent: parent handles it via its own watch
             return
 
         # Root agent: broadcast to other local root agents
-        for other in self._agents.values():
-            if other.name != agent_data.agent_name and other.parent is None:
-                await other._on_watched_agent_ready(agent_data)
+        for other in self._entries.values():
+            if other.agent.name != agent_data.agent_name and other.agent.parent is None:
+                await other.agent._on_watched_agent_ready(agent_data)
 
         await self._send_registry()
 
     async def _send_registry(self) -> None:
         """Broadcast this runner's root agents to the bus."""
-        agents = [name for name, agent in self._agents.items() if agent.parent is None]
+        agents = [name for name, entry in self._entries.items() if entry.agent.parent is None]
         if agents:
             logger.debug(f"AgentRunner '{self}': broadcasting registry: {agents}")
             await self._bus.send(
