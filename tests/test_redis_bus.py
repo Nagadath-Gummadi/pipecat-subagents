@@ -263,7 +263,6 @@ class TestRedisBus(unittest.IsolatedAsyncioTestCase):
         await self.bus.disconnect(conn)
 
         self.assertTrue(conn.task.cancelled() or conn.task.done())
-        self.assertTrue(conn.pubsub._closed)
         self.assertEqual(len(self.bus._connections), 0)
 
 

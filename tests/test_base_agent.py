@@ -952,6 +952,7 @@ class TestTaskLifecycle(unittest.IsolatedAsyncioTestCase):
         parent = StubAgent("parent", bus=bus)
         parent.set_task_manager(self.tm)
         worker = StubAgent("worker", bus=bus)
+        worker.set_task_manager(self.tm)
 
         task_id = await parent.start_task(worker, timeout=0.05)
 
@@ -963,6 +964,9 @@ class TestTaskLifecycle(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(cancel_msgs[0].task_id, task_id)
         self.assertEqual(cancel_msgs[0].reason, "timeout")
 
+        # Clean up remaining tasks
+        await parent.cleanup()
+
     async def test_start_task_timeout_cancelled_on_completion(self):
         """Responding before timeout prevents cancel from being sent."""
         bus = self.bus
@@ -971,6 +975,7 @@ class TestTaskLifecycle(unittest.IsolatedAsyncioTestCase):
         parent = StubAgent("parent", bus=bus)
         parent.set_task_manager(self.tm)
         worker = StubAgent("worker", bus=bus)
+        worker.set_task_manager(self.tm)
 
         task_id = await parent.start_task(worker, timeout=0.5)
 
@@ -986,6 +991,9 @@ class TestTaskLifecycle(unittest.IsolatedAsyncioTestCase):
 
         cancel_msgs = [m for m in sent if isinstance(m, BusTaskCancelMessage)]
         self.assertEqual(len(cancel_msgs), 0)
+
+        # Clean up remaining tasks
+        await parent.cleanup()
 
     async def test_start_task_no_timeout_by_default(self):
         """timeout_task is None when no timeout is given."""
