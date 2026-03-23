@@ -218,7 +218,7 @@ class BaseAgent(BaseObject, BusSubscriber):
         name: str,
         *,
         bus: AgentBus,
-        active: bool = True,
+        active: bool = False,
         bridged: bool = False,
         exclude_frames: Optional[tuple[type[Frame], ...]] = None,
     ):
@@ -227,7 +227,7 @@ class BaseAgent(BaseObject, BusSubscriber):
         Args:
             name: Unique name for this agent.
             bus: The `AgentBus` for inter-agent communication.
-            active: Whether the agent starts active. Defaults to True.
+            active: Whether the agent starts active. Defaults to False.
             bridged: Whether to add edge processors for bus frame routing.
                 When True, the pipeline receives frames from and sends
                 frames to the bus. Defaults to False.
@@ -307,22 +307,6 @@ class BaseAgent(BaseObject, BusSubscriber):
         """The shared agent registry, if set by a runner."""
         return self._registry
 
-    def set_registry(self, registry: AgentRegistry) -> None:
-        """Set the shared agent registry.
-
-        Args:
-            registry: The shared registry instance.
-        """
-        self._registry = registry
-
-    def set_task_manager(self, task_manager: TaskManager) -> None:
-        """Set the shared task manager for asyncio task creation.
-
-        Args:
-            task_manager: The shared task manager instance.
-        """
-        self._task_manager = task_manager
-
     @property
     def children(self) -> list["BaseAgent"]:
         """The list of child agents added via ``add_agent()``."""
@@ -343,6 +327,60 @@ class BaseAgent(BaseObject, BusSubscriber):
     def task_id(self) -> Optional[str]:
         """The ID of the task this agent is currently working on."""
         return self._task_id
+
+    def set_registry(self, registry: AgentRegistry) -> None:
+        """Set the shared agent registry.
+
+        Args:
+            registry: The shared registry instance.
+        """
+        self._registry = registry
+
+    def set_task_manager(self, task_manager: TaskManager) -> None:
+        """Set the shared task manager for asyncio task creation.
+
+        Args:
+            task_manager: The shared task manager instance.
+        """
+        self._task_manager = task_manager
+
+    async def cleanup(self) -> None:
+        """Clean up the agent and release resources.
+
+        Cancels running tasks, unsubscribes from the bus, and signals
+        that the agent has stopped.
+        """
+        await self._stop()
+
+    def create_asyncio_task(self, coroutine: Coroutine, name: str) -> asyncio.Task:
+        """Create a managed asyncio task.
+
+        Args:
+            coroutine: The coroutine to run.
+            name: Human-readable name for the task (used in logs).
+
+        Returns:
+            The created `asyncio.Task`.
+
+        Raises:
+            RuntimeError: If the task manager has not been set.
+        """
+        if not self._task_manager:
+            raise RuntimeError(f"Agent '{self}': task manager not set")
+        return self._task_manager.create_task(coroutine, name)
+
+    async def cancel_asyncio_task(self, task: asyncio.Task) -> None:
+        """Cancel a managed asyncio task.
+
+        Args:
+            task: The task to cancel.
+
+        Raises:
+            RuntimeError: If the task manager has not been set.
+        """
+        if not self._task_manager:
+            raise RuntimeError(f"Agent '{self}': task manager not set")
+        await self._task_manager.cancel_task(task)
 
     async def on_ready(self) -> None:
         """Called once when the agent is ready."""
@@ -836,6 +874,9 @@ class BaseAgent(BaseObject, BusSubscriber):
             agent_names, timeout=timeout, cancel_on_error=cancel_on_error
         )
 
+        # Schedule task right away.
+        await asyncio.sleep(0)
+
         for agent in agents:
             await self.add_agent(agent)
             await self.activate_agent(agent.name, args=args)
@@ -885,7 +926,7 @@ class BaseAgent(BaseObject, BusSubscriber):
         group = self._task_groups.pop(task_id, None)
         if group:
             if group.timeout_task:
-                group.timeout_task.cancel()
+                await self.cancel_asyncio_task(group.timeout_task)
             for agent_name in group.agent_names:
                 await self.send_message(
                     BusTaskCancelMessage(
@@ -1024,18 +1065,15 @@ class BaseAgent(BaseObject, BusSubscriber):
         await self._maybe_activate()
 
     async def _stop(self) -> None:
-        """Signal that this agent has stopped.
+        """Clean up and signal that this agent has stopped.
 
-        Called by ``on_pipeline_finished`` for pipeline agents, or by
-        the end/cancel handlers for pipeline-less agents.
+        Cancels all running task groups. Called by
+        ``on_pipeline_finished`` for pipeline agents, or by the
+        end/cancel handlers for pipeline-less agents.
         """
+        for task_id in list(self._task_groups.keys()):
+            await self.cancel_task(task_id, reason=f"agent '{self}' stopped")
         self._finished.set()
-
-    def _create_task(self, coroutine: Coroutine, name: str) -> asyncio.Task:
-        """Create an asyncio task via the task manager."""
-        if not self._task_manager:
-            raise RuntimeError(f"Agent '{self}': task manager not set")
-        return self._task_manager.create_task(coroutine, name)
 
     async def _register_ready(self) -> None:
         """Register this agent as ready in the shared registry.
@@ -1075,7 +1113,7 @@ class BaseAgent(BaseObject, BusSubscriber):
         self._task_groups[task_id] = group
 
         if timeout is not None:
-            group.timeout_task = self._create_task(
+            group.timeout_task = self.create_asyncio_task(
                 self._task_timeout(task_id, timeout), f"task_timeout_{task_id[:8]}"
             )
 
@@ -1254,7 +1292,7 @@ class BaseAgent(BaseObject, BusSubscriber):
             group.responses[source] = response or {}
             if group.responses.keys() >= group.agent_names:
                 if group.timeout_task:
-                    group.timeout_task.cancel()
+                    await self.cancel_asyncio_task(group.timeout_task)
                 del self._task_groups[task_id]
                 await self.on_task_completed(task_id, group.responses)
                 await self._call_event_handler("on_task_completed", task_id, group.responses)

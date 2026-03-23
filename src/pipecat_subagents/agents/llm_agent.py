@@ -84,7 +84,7 @@ class LLMAgent(BaseAgent):
         name: str,
         *,
         bus: AgentBus,
-        active: bool = True,
+        active: bool = False,
         bridged: bool = False,
     ):
         """Initialize the LLMAgent.
@@ -92,7 +92,7 @@ class LLMAgent(BaseAgent):
         Args:
             name: Unique name for this agent.
             bus: The `AgentBus` for inter-agent communication.
-            active: Whether the agent starts active. Defaults to True.
+            active: Whether the agent starts active. Defaults to False.
             bridged: Whether to add edge processors for bus frame routing.
                 Defaults to False.
         """
@@ -163,6 +163,11 @@ class LLMAgent(BaseAgent):
     @abstractmethod
     def build_llm(self) -> LLMService:
         """Return the LLM service for this agent.
+
+        Subclasses must implement this to provide a configured `LLMService`
+        (e.g. ``OpenAILLMService``, ``AnthropicLLMService``). Tool
+        registration is handled automatically; do not register ``@tool``
+        methods here.
 
         Returns:
             An `LLMService` instance.
