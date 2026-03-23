@@ -11,7 +11,9 @@ pipeline and automatic tool registration.
 """
 
 import asyncio
+import functools
 from abc import abstractmethod
+from collections import deque
 from dataclasses import dataclass
 from typing import Any, Callable, Optional, Union
 
@@ -103,6 +105,8 @@ class LLMAgent(BaseAgent):
         self._llm: Optional[LLMService] = None
         self._flush_done: asyncio.Event = asyncio.Event()
         self._flush_handlers_registered: bool = False
+        self._tool_call_inflight: int = 0
+        self._deferred_messages: deque[tuple[list, bool]] = deque()
 
     async def on_activated(self, args: Optional[dict]) -> None:
         """Configure the LLM with tools and activation messages.
@@ -122,6 +126,32 @@ class LLMAgent(BaseAgent):
             run_llm = activation.run_llm if activation.run_llm is not None else True
             await self.queue_frame(
                 LLMMessagesAppendFrame(messages=activation.messages, run_llm=run_llm)
+            )
+
+    @property
+    def tool_call_active(self) -> bool:
+        """True when one or more ``@tool`` methods are executing."""
+        return self._tool_call_inflight > 0
+
+    async def inject_context(self, messages: list, *, run_llm: bool = True) -> None:
+        """Inject messages into the LLM context.
+
+        When tool calls are in progress, messages are deferred and delivered
+        automatically once all tools complete. This prevents new LLM turns
+        from colliding with in-progress tool results.
+
+        When no tools are active, messages are delivered immediately.
+
+        Args:
+            messages: LLM context messages to append.
+            run_llm: Whether the LLM should run inference after appending.
+                Defaults to True.
+        """
+        if self._tool_call_inflight > 0:
+            self._deferred_messages.append((messages, run_llm))
+        else:
+            await self.queue_frame(
+                LLMMessagesAppendFrame(messages=messages, run_llm=run_llm)
             )
 
     def build_tools(self) -> list:
@@ -148,6 +178,8 @@ class LLMAgent(BaseAgent):
         """Create the LLM with tools registered.
 
         Calls ``build_llm()`` and registers all ``@tool`` decorated methods.
+        Each tool is automatically wrapped with inflight tracking so that
+        ``inject_context`` can defer messages during tool execution.
         Override to customize the LLM setup.
 
         Returns:
@@ -155,8 +187,9 @@ class LLMAgent(BaseAgent):
         """
         llm = self.build_llm()
         for method in _collect_tools(self):
+            tracked = self._track_tool_call(method)
             llm.register_direct_function(
-                method,
+                tracked,
                 cancel_on_interruption=method.cancel_on_interruption,
             )
         return llm
@@ -209,6 +242,26 @@ class LLMAgent(BaseAgent):
         """
         await self._close_function_call(result_callback)
         await super().handoff_to(agent_name, args=args)
+
+    def _track_tool_call(self, method: Callable) -> Callable:
+        @functools.wraps(method)
+        async def wrapper(params, *args, **kwargs):
+            self._tool_call_inflight += 1
+            try:
+                return await method(params, *args, **kwargs)
+            finally:
+                self._tool_call_inflight = max(0, self._tool_call_inflight - 1)
+                if self._tool_call_inflight == 0:
+                    await self._flush_deferred_messages()
+
+        return wrapper
+
+    async def _flush_deferred_messages(self) -> None:
+        while self._deferred_messages:
+            messages, run_llm = self._deferred_messages.popleft()
+            await self.queue_frame(
+                LLMMessagesAppendFrame(messages=messages, run_llm=run_llm)
+            )
 
     async def _close_function_call(
         self, result_callback: Optional[FunctionCallResultCallback]
