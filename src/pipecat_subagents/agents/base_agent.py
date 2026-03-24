@@ -27,6 +27,7 @@ from pipecat.frames.frames import (
 )
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.task import PipelineTask
+from pipecat.processors.filters.identity_filter import IdentityFilter
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor, FrameProcessorSetup
 from pipecat.utils.asyncio.task_manager import TaskManager
 from pipecat.utils.base_object import BaseObject
@@ -592,16 +593,17 @@ class BaseAgent(BaseObject, BusSubscriber):
 
         await self._call_event_handler("on_bus_message", message)
 
-    async def build_pipeline(self) -> Optional[Pipeline]:
-        """Return this agent's pipeline, or None for pipeline-less agents.
+    async def build_pipeline(self) -> Pipeline:
+        """Return this agent's pipeline.
 
-        Override to define a processing pipeline. Agents that return None
-        operate purely through bus messages (e.g. coordinators, factories).
+        Override to define a processing pipeline. The default returns a
+        no-op pipeline for agents that operate purely through bus messages
+        (e.g. coordinators, factories).
 
         Returns:
-            A ``Pipeline``, or None.
+            A ``Pipeline``.
         """
-        return None
+        return Pipeline([IdentityFilter()])
 
     async def create_pipeline(self, user_pipeline: Pipeline) -> Pipeline:
         """Assemble the final pipeline from the user pipeline.
@@ -652,21 +654,17 @@ class BaseAgent(BaseObject, BusSubscriber):
             idle_timeout_secs=None,
         )
 
-    async def create_pipeline_task(self) -> Optional[PipelineTask]:
-        """Create the agent's pipeline task, if it has a pipeline.
+    async def create_pipeline_task(self) -> PipelineTask:
+        """Create the agent's pipeline task.
 
-        Called by the runner. Returns None for pipeline-less agents.
+        Called by the runner.
 
         Returns:
-            The configured ``PipelineTask``, or None.
+            The configured ``PipelineTask``.
         """
         await self._bus.subscribe(self)
 
         user_pipeline = await self.build_pipeline()
-        if user_pipeline is None:
-            await self._start()
-            return None
-
         pipeline = await self.create_pipeline(user_pipeline)
 
         task = self.build_pipeline_task(pipeline)
@@ -1157,7 +1155,6 @@ class BaseAgent(BaseObject, BusSubscriber):
         Args:
             message: The ``BusActivateAgentMessage`` requesting activation.
         """
-        logger.debug(f"Agent '{self}': activated")
         self._activation_args = message.args
         self._pending_activation = True
         await self._maybe_activate()
@@ -1187,8 +1184,6 @@ class BaseAgent(BaseObject, BusSubscriber):
         await asyncio.gather(*(child.wait() for child in self._children))
         if self._task:
             await self._task.queue_frame(EndFrame(reason=message.reason))
-        else:
-            await self._stop()
 
     async def _handle_agent_cancel(self, message: BusCancelAgentMessage) -> None:
         """Propagate cancel to children, then cancel own pipeline.
@@ -1203,8 +1198,6 @@ class BaseAgent(BaseObject, BusSubscriber):
             )
         if self._task:
             await self._task.cancel()
-        else:
-            await self._stop()
 
     async def _handle_task_request(self, message: BusTaskRequestMessage) -> None:
         """Handle an incoming task request."""

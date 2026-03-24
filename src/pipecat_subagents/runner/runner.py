@@ -268,10 +268,6 @@ class AgentRunner(BaseObject, BusSubscriber):
             await self._call_event_handler("on_error", error)
             return
 
-        if pipeline_task is None:
-            # Pipeline-less agent: already started.
-            return
-
         entry.task = self.create_asyncio_task(
             self._pipecat_runner.run(pipeline_task),
             f"agent_{agent.name}",
