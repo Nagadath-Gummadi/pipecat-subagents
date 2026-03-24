@@ -187,22 +187,24 @@ class BaseAgent(BaseObject, BusSubscriber):
     - ``on_bus_message(message)``: Called for bus messages after default
       lifecycle handling.
 
-    Event handlers:
+    Event handlers available:
 
-    - on_ready(agent)
-    - on_activated(agent, args)
-    - on_deactivated(agent)
-    - on_agent_ready(agent, agent_info)
-    - on_task_request(agent, task_id, requester, payload)
-    - on_task_response(agent, task_id, agent_name, response, status)
-    - on_task_update(agent, task_id, agent_name, update)
-    - on_task_update_requested(agent, task_id)
-    - on_task_completed(agent, task_id, responses)
-    - on_task_stream_start(agent, task_id, agent_name, data)
-    - on_task_stream_data(agent, task_id, agent_name, data)
-    - on_task_stream_end(agent, task_id, agent_name, data)
-    - on_task_cancelled(agent, task_id, reason)
-    - on_bus_message(agent, message)
+    - on_ready: Agent is ready to operate.
+    - on_error: A pipeline error occurred.
+    - on_activated: Agent was activated.
+    - on_deactivated: Agent was deactivated.
+    - on_agent_ready: Another agent is ready.
+    - on_agent_error: A child agent reported an error.
+    - on_task_request: Received a task request.
+    - on_task_response: A worker sent a task response.
+    - on_task_update: A worker sent a progress update.
+    - on_task_update_requested: Requester asked for a progress update.
+    - on_task_completed: All workers in a task group responded.
+    - on_task_stream_start: A worker started streaming.
+    - on_task_stream_data: A worker sent a streaming chunk.
+    - on_task_stream_end: A worker finished streaming.
+    - on_task_cancelled: This agent's task was cancelled.
+    - on_bus_message: A bus message was received.
 
     Example::
 

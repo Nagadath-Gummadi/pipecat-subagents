@@ -54,13 +54,10 @@ class AgentRunner(BaseObject, BusSubscriber):
     responds to bus messages. On graceful end, root agents are ended
     first; parent agents propagate shutdown to their children.
 
-    Event handlers:
+    Event handlers available:
 
-    on_ready(runner)
-        Fired after all registered agents have been started.
-
-    on_error(runner, error)
-        Fired when the runner encounters an error (e.g. failed pipeline creation).
+    - on_ready: Fired after all registered agents have been started.
+    - on_error: Fired when the runner encounters an error.
 
     Example::
 
