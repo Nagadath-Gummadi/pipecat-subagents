@@ -182,16 +182,16 @@ Tasks let a parent agent spawn workers, wait for results, and optionally cancel 
 Proxy agents connect two independent bus instances that can't communicate directly. Each proxy is scoped to a specific agent name, so only messages for that agent cross the connection. This enables agents to operate across separate networks, third-party servers, or isolated processes without sharing a bus.
 
 ```
-    +---------------+      +-------------------+           +-------------------+      +-----------------+
-    |               |      |                   |           |                   |      |                 |
-    |  Local Agent  |      |    Proxy Agent    |  <~~~~~>  |    Proxy Agent    |      |  Remote Agent   |
-    |               |      |                   |           |                   |      |                 |
-    +---------------+      +-------------------+           +-------------------+      +-----------------+
-        messages                 messages                        messages                   messages
-            │                       │                               │                          │
-  ══════════╧═══════════════════════╧════════════         ══════════╧══════════════════════════╧══════════
-                     Agent Bus                                                Agent Bus
-  ═══════════════════════════════════════════════         ════════════════════════════════════════════════
+    +-------------+    +-------------+           +-------------+     +--------------+
+    |             |    |             |           |             |     |              |
+    | Local Agent |    | Proxy Agent |  <~~~~~>  | Proxy Agent |     | Remote Agent |
+    |             |    |             |           |             |     |              |
+    +-------------+    +-------------+           +-------------+     +--------------+
+        messages           messages                  messages            messages
+            │                 │                         │                   │
+  ══════════╧═════════════════╧════════         ════════╧═══════════════════╧═════════
+                Agent Bus                                     Agent Bus
+  ═════════════════════════════════════         ══════════════════════════════════════
 ```
 
 The framework includes a WebSocket proxy implementation. Other transports can be added by following the same pattern.
