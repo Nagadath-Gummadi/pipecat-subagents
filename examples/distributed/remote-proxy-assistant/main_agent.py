@@ -121,12 +121,15 @@ class AcmeAgent(BaseAgent):
         async def on_client_connected(transport, client):
             logger.info("Client connected")
             # Create a proxy to the remote LLM server
+            from pipecat_subagents.bus import BusFrameMessage
+
             proxy = WebSocketProxyClientAgent(
                 "proxy",
                 bus=self.bus,
                 url=self._remote_agent_url,
                 remote_agent_name="assistant",
                 local_agent_name=self.name,
+                forward_messages=(BusFrameMessage,),
             )
             await self.add_agent(proxy)
 

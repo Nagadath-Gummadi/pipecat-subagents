@@ -47,7 +47,7 @@ class BusMessage(DataFrame):
     target: Optional[str] = None
 
     def __str__(self):
-        return f"{type(self).__name__} (source={self.source}, target={self.target})"
+        return f"{self.name} (source={self.source}, target={self.target})"
 
 
 @dataclass

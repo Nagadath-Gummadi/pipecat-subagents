@@ -21,7 +21,7 @@ except ModuleNotFoundError as e:
 
 from pipecat_subagents.agents.base_agent import BaseAgent
 from pipecat_subagents.bus import AgentBus, BusAgentRegistryMessage, BusMessage
-from pipecat_subagents.bus.messages import BusFrameMessage, BusLocalMixin
+from pipecat_subagents.bus.messages import BusLocalMixin
 from pipecat_subagents.bus.serializers import JSONMessageSerializer
 from pipecat_subagents.bus.serializers.base import MessageSerializer
 
@@ -67,6 +67,7 @@ class WebSocketProxyClientAgent(BaseAgent):
         url: str,
         remote_agent_name: str,
         local_agent_name: str,
+        forward_messages: tuple[type[BusMessage], ...] = (),
         headers: Optional[dict[str, str]] = None,
         serializer: Optional[MessageSerializer] = None,
     ):
@@ -81,6 +82,10 @@ class WebSocketProxyClientAgent(BaseAgent):
             local_agent_name: Name of the local agent that should
                 receive responses. Only inbound messages targeted at
                 this agent are accepted.
+            forward_messages: Additional message types to forward from
+                the local agent (e.g. ``(BusFrameMessage,)`` for frame
+                routing). These are forwarded based on source agent name
+                only, regardless of target.
             headers: Optional HTTP headers sent with the WebSocket
                 handshake (e.g. for authentication).
             serializer: Serializer for bus messages. Defaults to
@@ -90,6 +95,7 @@ class WebSocketProxyClientAgent(BaseAgent):
         self._url = url
         self._remote_agent_name = remote_agent_name
         self._local_agent_name = local_agent_name
+        self._forward_messages = forward_messages
         self._headers = headers or {}
         self._serializer = serializer or JSONMessageSerializer()
         self._ws = None
@@ -132,14 +138,14 @@ class WebSocketProxyClientAgent(BaseAgent):
         if isinstance(message, BusLocalMixin):
             return
 
-        # Forward frame messages from the local agent (broadcast by the bridge)
-        if isinstance(message, BusFrameMessage):
+        # Forward additional message types from the local agent (e.g. BusFrameMessage)
+        if self._forward_messages and isinstance(message, self._forward_messages):
             if message.source == self._local_agent_name:
                 try:
                     await self._send_ws(message)
-                    logger.trace(f"Agent '{self}': forwarded frame to remote")
+                    logger.trace(f"Agent '{self}': forwarded {message} to remote")
                 except Exception:
-                    logger.exception(f"Agent '{self}': failed to forward frame to remote")
+                    logger.exception(f"Agent '{self}': failed to forward message to remote")
             return
 
         # Forward targeted messages to the remote agent
@@ -181,9 +187,9 @@ class WebSocketProxyClientAgent(BaseAgent):
                         await self.send_message(message)
                         continue
 
-                    # Accept frame messages (broadcast by the remote agent's edge processors)
-                    if isinstance(message, BusFrameMessage):
-                        logger.trace(f"Agent '{self}': received frame from remote")
+                    # Accept additional message types (e.g. BusFrameMessage)
+                    if self._forward_messages and isinstance(message, self._forward_messages):
+                        logger.trace(f"Agent '{self}': received {message} from remote")
                         await self.send_message(message)
                         continue
 

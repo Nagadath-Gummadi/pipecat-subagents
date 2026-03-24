@@ -83,12 +83,15 @@ async def websocket_endpoint(websocket: WebSocket):
     runner = AgentRunner(handle_sigint=False)
 
     # Create the proxy server agent that bridges the WebSocket to the local bus
+    from pipecat_subagents.bus import BusFrameMessage
+
     proxy = WebSocketProxyServerAgent(
         "gateway",
         bus=runner.bus,
         websocket=websocket,
         agent_name="assistant",
         remote_agent_name="acme",
+        forward_messages=(BusFrameMessage,),
     )
 
     @proxy.event_handler("on_client_connected")

@@ -5,16 +5,16 @@ Runs an LLM agent on a remote server, connected to the main transport agent via 
 ## Architecture
 
 ```
-      +---------------+      +-------------------+           +-------------------+      +-----------------+
-      |               |      |                   |           |                   |      |                 |
-      |  Main Agent   |      |    Proxy Agent    |  <~~~~~>  |    Proxy Agent    |      | Assistant Agent |
-      |               |      |                   |           |                   |      |                 |
-      +---------------+      +-------------------+           +-------------------+      +-----------------+
-          messages                 messages                        messages                   messages
-              │                       │                               │                          │
-    ══════════╧═══════════════════════╧════════════         ══════════╧══════════════════════════╧══════════
-                       Agent Bus                                                Agent Bus
-    ═══════════════════════════════════════════════         ════════════════════════════════════════════════
+    +---------------+      +-------------------+           +-------------------+      +-----------------+
+    |               |      |                   |           |                   |      |                 |
+    |   Main Agent  |      |    Proxy Agent    |  <~~~~~>  |    Proxy Agent    |      | Assistant Agent |
+    |               |      |                   |           |                   |      |                 |
+    +---------------+      +-------------------+           +-------------------+      +-----------------+
+        messages                 messages                        messages                   messages
+            │                       │                               │                          │
+  ══════════╧═══════════════════════╧════════════         ══════════╧══════════════════════════╧══════════
+                     Agent Bus                                                Agent Bus
+  ═══════════════════════════════════════════════         ════════════════════════════════════════════════
 ```
 
 - **main_agent.py**: Transport agent with STT, TTS, and a BusBridge. Creates a `WebSocketProxyClientAgent` that connects to the remote server.

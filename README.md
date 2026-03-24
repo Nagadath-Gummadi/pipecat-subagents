@@ -203,10 +203,26 @@ The framework includes a WebSocket proxy implementation. Other transports can be
 
 Agent discovery works automatically: when the remote agent is ready, the proxy notifies the local side.
 
-Security: each proxy filters messages by agent name. Only the following cross the connection:
+#### Security
+
+Each proxy filters messages by agent name. Only the following cross the connection:
+
 - **Targeted messages** between the two configured agents (activation, tasks, errors).
-- **Frame messages** from the configured agent (pipeline frames via edge processors or bridge).
 - **Registry messages** for agent discovery (sent automatically when the remote agent is ready).
+- **Additional message types** opted in via `forward_messages` (e.g. `BusFrameMessage` for frame routing). These are forwarded based on source agent name only, regardless of target.
+
+By default, only targeted messages and registry messages cross the connection. Frame routing must be explicitly enabled:
+
+```python
+proxy = WebSocketProxyClientAgent(
+    "proxy",
+    bus=bus,
+    url="ws://server:8765/ws",
+    remote_agent_name="assistant",
+    local_agent_name="acme",
+    forward_messages=(BusFrameMessage,),
+)
+```
 
 Everything else is blocked: local-only messages, broadcast lifecycle messages (end/cancel), and messages for other agents. Closing the connection signals shutdown.
 
