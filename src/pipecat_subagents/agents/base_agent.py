@@ -255,7 +255,7 @@ class BaseAgent(BaseObject, BusSubscriber):
         # runs the agent's pipeline. Finished is set when the agent stops.
         self._parent: Optional[str] = None
         self._children: list["BaseAgent"] = []
-        self._task: Optional[PipelineTask] = None
+        self._pipeline_task: Optional[PipelineTask] = None
         self._pipeline_started = False
         self._finished: asyncio.Event = asyncio.Event()
 
@@ -316,15 +316,15 @@ class BaseAgent(BaseObject, BusSubscriber):
         return self._children
 
     @property
-    def task(self) -> PipelineTask:
+    def pipeline_task(self) -> PipelineTask:
         """The `PipelineTask` for this agent.
 
         Raises:
             RuntimeError: If the pipeline task has not been created yet.
         """
-        if not self._task:
+        if not self._pipeline_task:
             raise RuntimeError(f"Agent '{self}': task not available.")
-        return self._task
+        return self._pipeline_task
 
     @property
     def task_id(self) -> Optional[str]:
@@ -668,7 +668,7 @@ class BaseAgent(BaseObject, BusSubscriber):
         pipeline = await self.create_pipeline(user_pipeline)
 
         task = self.build_pipeline_task(pipeline)
-        self._task = task
+        self._pipeline_task = task
 
         @task.event_handler("on_pipeline_started")
         async def on_pipeline_started(task, frame: StartFrame):
@@ -684,9 +684,7 @@ class BaseAgent(BaseObject, BusSubscriber):
 
         @task.event_handler("on_pipeline_finished")
         async def on_pipeline_finished(task, frame):
-            logger.debug(f"Agent '{self}': pipeline finished ({frame})")
-            if isinstance(frame, CancelFrame):
-                await self.cancel()
+            logger.debug(f"Agent '{self}': pipeline {task} finished ({frame})")
             await self._stop()
 
         return task
@@ -739,8 +737,8 @@ class BaseAgent(BaseObject, BusSubscriber):
             direction: Direction the frame should travel. Defaults to
                 ``FrameDirection.DOWNSTREAM``.
         """
-        if self._task:
-            await self._task.queue_frame(frame, direction)
+        if self._pipeline_task:
+            await self._pipeline_task.queue_frame(frame, direction)
 
     async def queue_frames(
         self, frames, direction: FrameDirection = FrameDirection.DOWNSTREAM
@@ -752,8 +750,8 @@ class BaseAgent(BaseObject, BusSubscriber):
             direction: Direction the frames should travel. Defaults to
                 ``FrameDirection.DOWNSTREAM``.
         """
-        if self._task:
-            await self._task.queue_frames(frames, direction)
+        if self._pipeline_task:
+            await self._pipeline_task.queue_frames(frames, direction)
 
     async def add_agent(self, agent: "BaseAgent") -> None:
         """Register a child agent under this parent.
@@ -1176,14 +1174,14 @@ class BaseAgent(BaseObject, BusSubscriber):
         Args:
             message: The ``BusEndAgentMessage`` requesting a graceful end.
         """
-        logger.debug(f"Agent '{self}': received end, ending pipeline")
+        logger.debug(f"Agent '{self}': received end, ending pipeline ({self._pipeline_task})")
         for child in self._children:
             await self.send_message(
                 BusEndAgentMessage(source=self.name, target=child.name, reason=message.reason)
             )
         await asyncio.gather(*(child.wait() for child in self._children))
-        if self._task:
-            await self._task.queue_frame(EndFrame(reason=message.reason))
+        if self._pipeline_task:
+            await self._pipeline_task.queue_frame(EndFrame(reason=message.reason))
 
     async def _handle_agent_cancel(self, message: BusCancelAgentMessage) -> None:
         """Propagate cancel to children, then cancel own pipeline.
@@ -1196,8 +1194,8 @@ class BaseAgent(BaseObject, BusSubscriber):
             await self.send_message(
                 BusCancelAgentMessage(source=self.name, target=child.name, reason=message.reason)
             )
-        if self._task:
-            await self._task.cancel()
+        if self._pipeline_task:
+            await self._pipeline_task.cancel()
 
     async def _handle_task_request(self, message: BusTaskRequestMessage) -> None:
         """Handle an incoming task request."""

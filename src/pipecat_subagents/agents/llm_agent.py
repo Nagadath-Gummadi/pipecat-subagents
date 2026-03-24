@@ -281,19 +281,19 @@ class LLMAgent(BaseAgent):
         if not self._flush_handlers_registered:
             self._flush_handlers_registered = True
 
-            self.task.add_reached_upstream_filter((PipelineFlushFrame,))
-            self.task.add_reached_downstream_filter((PipelineFlushFrame,))
+            self.pipeline_task.add_reached_upstream_filter((PipelineFlushFrame,))
+            self.pipeline_task.add_reached_downstream_filter((PipelineFlushFrame,))
 
-            @self.task.event_handler("on_frame_reached_upstream")
+            @self.pipeline_task.event_handler("on_frame_reached_upstream")
             async def _on_flush_upstream(task, frame):
                 if isinstance(frame, PipelineFlushFrame):
                     await task.queue_frame(PipelineFlushFrame())
 
-            @self.task.event_handler("on_frame_reached_downstream")
+            @self.pipeline_task.event_handler("on_frame_reached_downstream")
             async def _on_flush_downstream(task, frame):
                 if isinstance(frame, PipelineFlushFrame):
                     self._flush_done.set()
 
         self._flush_done.clear()
-        await self.task.queue_frame(PipelineFlushFrame(), FrameDirection.UPSTREAM)
+        await self.pipeline_task.queue_frame(PipelineFlushFrame(), FrameDirection.UPSTREAM)
         await self._flush_done.wait()
