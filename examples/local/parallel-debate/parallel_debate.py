@@ -51,7 +51,7 @@ from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.transports.base_transport import BaseTransport, TransportParams
 from pipecat.transports.daily.transport import DailyParams
 
-from pipecat_subagents.agents import BaseAgent, LLMAgentActivationArgs, LLMAgent, tool
+from pipecat_subagents.agents import BaseAgent, LLMAgent, LLMAgentActivationArgs, tool
 from pipecat_subagents.bus import AgentBus, BusBridgeProcessor
 from pipecat_subagents.bus.messages import BusTaskRequestMessage
 from pipecat_subagents.runner import AgentRunner
@@ -151,10 +151,10 @@ class ModeratorAgent(LLMAgent):
 
     async def on_ready(self) -> None:
         await super().on_ready()
-        self._workers = [
-            DebateWorker(role, bus=self.bus, role=role)
-            for role in ("advocate", "critic", "analyst")
-        ]
+        for role in ("advocate", "critic", "analyst"):
+            worker = DebateWorker(role, bus=self.bus, role=role)
+            self._workers.append(worker)
+            await self.add_agent(worker)
 
     @tool(cancel_on_interruption=False)
     async def debate(self, params: FunctionCallParams, topic: str):
@@ -165,8 +165,9 @@ class ModeratorAgent(LLMAgent):
         """
         logger.info(f"Agent '{self.name}': starting debate on '{topic}'")
 
+        worker_names = [str(w) for w in self._workers]
         async with self.request_task_group(
-            *self._workers, payload={"topic": topic}, timeout=30
+            *worker_names, payload={"topic": topic}, timeout=30
         ) as tg:
             pass
 

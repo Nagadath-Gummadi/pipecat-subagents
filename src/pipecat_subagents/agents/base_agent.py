@@ -812,6 +812,10 @@ class BaseAgent(BaseObject, BusSubscriber):
         Returns:
             The generated task_id shared by all agents in the group.
         """
+        for name in agent_names:
+            if not isinstance(name, str):
+                raise TypeError(f"{self} Expected agent name as str, got {type(name).__name__}")
+
         group = await self.create_task_group_and_request_task(
             list(agent_names),
             payload=payload,
@@ -877,6 +881,10 @@ class BaseAgent(BaseObject, BusSubscriber):
             for name, result in tg.responses.items():
                 print(name, result)
         """
+        for name in agent_names:
+            if not isinstance(name, str):
+                raise TypeError(f"{self} Expected agent name as str, got {type(name).__name__}")
+
         return TaskGroupContext(
             self,
             agent_names,
