@@ -77,7 +77,7 @@ class TestAgentRegistry(unittest.IsolatedAsyncioTestCase):
         async def handler(agent_data):
             received.append(agent_data)
 
-        self.registry.watch("greeter", handler)
+        await self.registry.watch("greeter", handler)
 
         data = AgentReadyData(agent_name="greeter", runner="runner_a")
         await self.registry.register(data)
@@ -92,7 +92,7 @@ class TestAgentRegistry(unittest.IsolatedAsyncioTestCase):
         async def handler(agent_data):
             received.append(agent_data)
 
-        self.registry.watch("greeter", handler)
+        await self.registry.watch("greeter", handler)
 
         data = AgentReadyData(agent_name="support", runner="runner_a")
         await self.registry.register(data)
@@ -106,7 +106,7 @@ class TestAgentRegistry(unittest.IsolatedAsyncioTestCase):
         async def handler(agent_data):
             received.append(agent_data)
 
-        self.registry.watch("greeter", handler)
+        await self.registry.watch("greeter", handler)
 
         data = AgentReadyData(agent_name="greeter", runner="runner_a")
         await self.registry.register(data)
@@ -125,14 +125,29 @@ class TestAgentRegistry(unittest.IsolatedAsyncioTestCase):
         async def handler_b(agent_data):
             received_b.append(agent_data)
 
-        self.registry.watch("greeter", handler_a)
-        self.registry.watch("greeter", handler_b)
+        await self.registry.watch("greeter", handler_a)
+        await self.registry.watch("greeter", handler_b)
 
         data = AgentReadyData(agent_name="greeter", runner="runner_a")
         await self.registry.register(data)
 
         self.assertEqual(len(received_a), 1)
         self.assertEqual(len(received_b), 1)
+
+    async def test_watch_fires_immediately_if_already_registered(self):
+        """Watch handler fires immediately when the agent is already registered."""
+        data = AgentReadyData(agent_name="greeter", runner="runner_a")
+        await self.registry.register(data)
+
+        received = []
+
+        async def handler(agent_data):
+            received.append(agent_data)
+
+        await self.registry.watch("greeter", handler)
+
+        self.assertEqual(len(received), 1)
+        self.assertIs(received[0], data)
 
     async def test_runner_name_property(self):
         """runner_name returns the name passed at construction."""

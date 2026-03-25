@@ -77,14 +77,19 @@ class AgentRegistry:
     def __contains__(self, agent_name: str) -> bool:
         return self.get(agent_name) is not None
 
-    def watch(self, agent_name: str, handler: WatchHandler) -> None:
+    async def watch(self, agent_name: str, handler: WatchHandler) -> None:
         """Watch for a specific agent's registration.
+
+        If the agent is already registered, the handler fires immediately.
 
         Args:
             agent_name: The agent name to watch for.
             handler: Async callable invoked with the agent's data.
         """
         self._watches[agent_name].append(handler)
+        existing = self.get(agent_name)
+        if existing:
+            await handler(existing)
 
     async def register(self, agent_data: AgentReadyData) -> bool:
         """Register an agent. Returns True if the agent was new.

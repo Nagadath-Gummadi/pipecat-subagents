@@ -176,7 +176,7 @@ class AgentRunner(BaseObject, BusSubscriber):
             return
         agent.set_registry(self._registry)
         agent.set_task_manager(self._task_manager)
-        self._registry.watch(agent.name, self._on_agent_ready)
+        await self._registry.watch(agent.name, self._on_agent_ready)
         entry = AgentEntry(agent=agent)
         self._entries[agent.name] = entry
         logger.debug(f"AgentRunner '{self}': added agent '{agent.name}'")
