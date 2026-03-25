@@ -749,8 +749,8 @@ class TestTaskLifecycle(unittest.IsolatedAsyncioTestCase):
         completed = []
 
         @parent.event_handler("on_task_completed")
-        async def on_completed(agent, task_id, responses):
-            completed.append((task_id, responses))
+        async def on_completed(agent, result):
+            completed.append(result)
 
         task_id = await parent.request_task("w1", "w2")
 
@@ -767,8 +767,8 @@ class TestTaskLifecycle(unittest.IsolatedAsyncioTestCase):
         )
         await asyncio.sleep(0)  # let async event handlers run
         self.assertEqual(len(completed), 1)
-        self.assertEqual(completed[0][0], task_id)
-        self.assertEqual(completed[0][1], {"w1": {"a": 1}, "w2": {"b": 2}})
+        self.assertEqual(completed[0].task_id, task_id)
+        self.assertEqual(completed[0].responses, {"w1": {"a": 1}, "w2": {"b": 2}})
 
     async def test_cancel_task_sends_cancel_to_all_agents(self):
         """cancel_task() sends BusTaskCancelMessage to all agents in group."""
@@ -915,8 +915,8 @@ class TestTaskLifecycle(unittest.IsolatedAsyncioTestCase):
         completed = []
 
         @parent.event_handler("on_task_completed")
-        async def on_completed(agent, task_id, responses):
-            completed.append((task_id, responses))
+        async def on_completed(agent, result):
+            completed.append(result)
 
         task_id = await parent.request_task("w1", "w2")
 
@@ -937,8 +937,8 @@ class TestTaskLifecycle(unittest.IsolatedAsyncioTestCase):
         )
         await asyncio.sleep(0)
         self.assertEqual(len(completed), 1)
-        self.assertEqual(completed[0][0], task_id)
-        self.assertEqual(completed[0][1], {"w1": {"result": "a"}, "w2": {"result": "b"}})
+        self.assertEqual(completed[0].task_id, task_id)
+        self.assertEqual(completed[0].responses, {"w1": {"result": "a"}, "w2": {"result": "b"}})
 
     async def test_send_task_stream_raises_without_active_task(self):
         """All stream helpers raise RuntimeError when no active task."""

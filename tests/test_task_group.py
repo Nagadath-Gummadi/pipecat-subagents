@@ -304,14 +304,14 @@ class TestTaskGroupContext(unittest.IsolatedAsyncioTestCase):
         completed = []
 
         @parent.event_handler("on_task_completed")
-        async def on_completed(agent, task_id, responses):
-            completed.append((task_id, responses))
+        async def on_completed(agent, result):
+            completed.append(result)
 
         async with parent.request_task_group("w1") as tg:
             pass
 
         self.assertEqual(len(completed), 1)
-        self.assertEqual(completed[0][1], {"w1": {"ok": True}})
+        self.assertEqual(completed[0].responses, {"w1": {"ok": True}})
 
     async def test_task_group_iterates_updates(self):
         """async for yields update events from workers."""

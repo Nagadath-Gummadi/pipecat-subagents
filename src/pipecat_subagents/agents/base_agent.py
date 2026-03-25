@@ -37,6 +37,7 @@ from pipecat_subagents.agents.task_group import (
     TaskGroupContext,
     TaskGroupError,
     TaskGroupEvent,
+    TaskGroupResponse,
 )
 from pipecat_subagents.bus import (
     AgentBus,
@@ -159,8 +160,8 @@ class BaseAgent(BaseObject, BusSubscriber):
       update.
     - ``on_task_update_requested(message)``: Called when the requester asks
       for a progress update.
-    - ``on_task_completed(task_id, responses)``: Called when all agents in a
-      task group have responded.
+    - ``on_task_completed(result)``: Called when all agents in a task group
+      have responded.
     - ``on_task_error(message)``: Called when a worker errors and the group
       is cancelled (``cancel_on_error``).
     - ``on_task_stream_start(message)``: Called when a task agent begins
@@ -438,10 +439,6 @@ class BaseAgent(BaseObject, BusSubscriber):
 
         Override to perform work. Use ``send_task_update()`` to report
         progress and ``send_task_response()`` to return results.
-
-        Args:
-            message: The ``BusTaskRequestMessage`` with task_id, source,
-                and payload.
         """
         pass
 
@@ -449,43 +446,22 @@ class BaseAgent(BaseObject, BusSubscriber):
         """Called when a task agent sends a response.
 
         Override to process individual results as they arrive.
-
-        Args:
-            message: The ``BusTaskResponseMessage`` with task_id, source,
-                response, and status.
         """
         pass
 
     async def on_task_update(self, message: BusTaskUpdateMessage) -> None:
-        """Called when a task agent sends a progress update.
-
-        Override to handle intermediate progress reports.
-
-        Args:
-            message: The ``BusTaskUpdateMessage`` with task_id, source,
-                and update.
-        """
+        """Called when a task agent sends a progress update."""
         pass
 
     async def on_task_update_requested(self, message: BusTaskUpdateRequestMessage) -> None:
         """Called when the requester asks for a progress update.
 
         Override to send back a progress update via ``send_task_update()``.
-
-        Args:
-            message: The ``BusTaskUpdateRequestMessage`` with task_id.
         """
         pass
 
-    async def on_task_completed(self, task_id: str, responses: dict) -> None:
-        """Called when all agents in a task group have responded.
-
-        Override to process the collected results from all agents.
-
-        Args:
-            task_id: The task identifier.
-            responses: Collected responses keyed by agent name.
-        """
+    async def on_task_completed(self, result: TaskGroupResponse) -> None:
+        """Called when all agents in a task group have responded."""
         pass
 
     async def on_task_error(self, message: BusTaskResponseMessage) -> None:
@@ -496,46 +472,25 @@ class BaseAgent(BaseObject, BusSubscriber):
         ``on_task_completed`` will not fire. Partial responses from
         workers that completed before the error are available in
         the task group's ``responses``.
-
-        Args:
-            message: The ``BusTaskResponseMessage`` that triggered the error.
         """
         pass
 
     async def on_task_stream_start(self, message: BusTaskStreamStartMessage) -> None:
-        """Called when a task agent begins streaming.
-
-        Args:
-            message: The ``BusTaskStreamStartMessage`` with task_id, source,
-                and data.
-        """
+        """Called when a task agent begins streaming."""
         pass
 
     async def on_task_stream_data(self, message: BusTaskStreamDataMessage) -> None:
-        """Called for each streaming chunk from a task agent.
-
-        Args:
-            message: The ``BusTaskStreamDataMessage`` with task_id, source,
-                and data.
-        """
+        """Called for each streaming chunk from a task agent."""
         pass
 
     async def on_task_stream_end(self, message: BusTaskStreamEndMessage) -> None:
-        """Called when a task agent finishes streaming.
-
-        Args:
-            message: The ``BusTaskStreamEndMessage`` with task_id, source,
-                and data.
-        """
+        """Called when a task agent finishes streaming."""
         pass
 
     async def on_task_cancelled(self, message: BusTaskCancelMessage) -> None:
         """Called when this agent's task is cancelled by the requester.
 
         Override to clean up resources or stop in-progress work.
-
-        Args:
-            message: The ``BusTaskCancelMessage`` with task_id and reason.
         """
         pass
 
@@ -1354,8 +1309,9 @@ class BaseAgent(BaseObject, BusSubscriber):
                 if group.timeout_task:
                     await self.cancel_asyncio_task(group.timeout_task)
                 del self._task_groups[task_id]
-                await self.on_task_completed(task_id, group.responses)
-                await self._call_event_handler("on_task_completed", task_id, group.responses)
+                result = TaskGroupResponse(task_id=task_id, responses=group.responses)
+                await self.on_task_completed(result)
+                await self._call_event_handler("on_task_completed", result)
                 group.complete()
 
     async def _maybe_activate(self) -> None:

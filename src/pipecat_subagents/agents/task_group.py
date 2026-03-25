@@ -23,6 +23,19 @@ class TaskGroupError(Exception):
 
 
 @dataclass
+class TaskGroupResponse:
+    """Collected results from a completed task group.
+
+    Parameters:
+        task_id: The shared task identifier.
+        responses: Collected responses keyed by agent name.
+    """
+
+    task_id: str
+    responses: dict[str, dict]
+
+
+@dataclass
 class TaskGroupEvent:
     """An event received from a worker during task group execution.
 
