@@ -15,7 +15,7 @@ This package provides the core agent hierarchy:
 
 from pipecat_subagents.agents.base_agent import AgentActivationArgs, BaseAgent
 from pipecat_subagents.agents.flows_agent import FlowsAgent
-from pipecat_subagents.agents.llm_agent import LLMAgentActivationArgs, LLMAgent
+from pipecat_subagents.agents.llm_agent import LLMAgent, LLMAgentActivationArgs
 from pipecat_subagents.agents.task_group import (
     TaskGroupContext,
     TaskGroupError,

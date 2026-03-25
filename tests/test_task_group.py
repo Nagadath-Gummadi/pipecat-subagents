@@ -12,14 +12,13 @@ from pipecat.processors.filters.identity_filter import IdentityFilter
 from pipecat.utils.asyncio.task_manager import TaskManager, TaskManagerParams
 
 from pipecat_subagents.agents.base_agent import BaseAgent
-from pipecat_subagents.agents.task_group import TaskGroupError, TaskGroupEvent
+from pipecat_subagents.agents.task_group import TaskGroupError, TaskGroupEvent, TaskStatus
 from pipecat_subagents.bus import (
     AsyncQueueBus,
     BusTaskCancelMessage,
     BusTaskRequestMessage,
 )
 from pipecat_subagents.registry import AgentRegistry
-from pipecat_subagents.agents.task_group import TaskStatus
 from pipecat_subagents.types import AgentReadyData
 
 
@@ -266,7 +265,9 @@ class TestTaskGroupContext(unittest.IsolatedAsyncioTestCase):
         # w1 responds successfully, w2 responds with error.
         # Order depends on bus dispatch, but both are registered.
         w1 = TaskWorkerAgent("w1", bus=self.bus, response={"ok": True})
-        w2 = TaskWorkerAgent("w2", bus=self.bus, response={"error": "fail"}, status=TaskStatus.ERROR)
+        w2 = TaskWorkerAgent(
+            "w2", bus=self.bus, response={"error": "fail"}, status=TaskStatus.ERROR
+        )
         await setup_agent(self.bus, self.registry, w1)
         await setup_agent(self.bus, self.registry, w2)
 

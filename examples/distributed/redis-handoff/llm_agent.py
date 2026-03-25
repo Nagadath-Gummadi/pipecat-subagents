@@ -30,7 +30,7 @@ from pipecat.services.openai.base_llm import OpenAILLMSettings
 from pipecat.services.openai.llm import OpenAILLMService
 from redis.asyncio import Redis
 
-from pipecat_subagents.agents import LLMAgentActivationArgs, LLMAgent, tool
+from pipecat_subagents.agents import LLMAgent, LLMAgentActivationArgs, tool
 from pipecat_subagents.bus.network.redis import RedisBus
 from pipecat_subagents.runner import AgentRunner
 

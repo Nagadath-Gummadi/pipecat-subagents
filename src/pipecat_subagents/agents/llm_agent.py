@@ -15,7 +15,7 @@ import functools
 from abc import abstractmethod
 from collections import deque
 from dataclasses import dataclass
-from typing import Any, Callable, Optional, Union
+from typing import Any, Callable, Optional
 
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.frames.frames import (
@@ -29,7 +29,6 @@ from pipecat.frames.frames import (
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.services.llm_service import LLMService
-from pydantic import BaseModel
 
 from pipecat_subagents.agents.base_agent import AgentActivationArgs, BaseAgent
 from pipecat_subagents.agents.tool import _collect_tools
@@ -45,6 +44,7 @@ class PipelineFlushFrame(ControlFrame, UninterruptibleFrame):
     pass
 
 
+@dataclass
 class LLMAgentActivationArgs(AgentActivationArgs):
     """Activation arguments for LLM agents.
 
@@ -117,7 +117,7 @@ class LLMAgent(BaseAgent):
         """
         await super().on_activated(args)
 
-        activation = LLMAgentActivationArgs.model_validate(args) if args else LLMAgentActivationArgs()
+        activation = LLMAgentActivationArgs.from_dict(args) if args else LLMAgentActivationArgs()
 
         tools = self.build_tools()
         if tools:
@@ -226,7 +226,7 @@ class LLMAgent(BaseAgent):
         self,
         agent_name: str,
         *,
-        args: Union[BaseModel, dict, None] = None,
+        args: Optional[AgentActivationArgs] = None,
         result_callback: Optional[FunctionCallResultCallback] = None,
     ) -> None:
         """Hand off to another agent.

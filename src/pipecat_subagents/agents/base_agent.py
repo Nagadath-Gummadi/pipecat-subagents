@@ -12,7 +12,9 @@ coordination.
 """
 
 import asyncio
+import dataclasses
 import uuid
+from dataclasses import dataclass
 from typing import Coroutine, Optional, Union
 
 from loguru import logger
@@ -30,7 +32,6 @@ from pipecat.processors.filters.identity_filter import IdentityFilter
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor, FrameProcessorSetup
 from pipecat.utils.asyncio.task_manager import TaskManager
 from pipecat.utils.base_object import BaseObject
-from pydantic import BaseModel
 
 from pipecat_subagents.agents.task_group import (
     TaskGroup,
@@ -67,7 +68,8 @@ from pipecat_subagents.registry import AgentRegistry
 from pipecat_subagents.types import AgentErrorData, AgentReadyData
 
 
-class AgentActivationArgs(BaseModel, extra="ignore"):
+@dataclass
+class AgentActivationArgs:
     """Base activation arguments for any agent.
 
     Parameters:
@@ -75,6 +77,20 @@ class AgentActivationArgs(BaseModel, extra="ignore"):
     """
 
     metadata: Optional[dict] = None
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "AgentActivationArgs":
+        """Create from a dict, ignoring unknown keys."""
+        fields = {f.name for f in dataclasses.fields(cls)}
+        return cls(**{k: v for k, v in data.items() if k in fields})
+
+    def to_dict(self) -> dict:
+        """Convert to a dict, excluding None values."""
+        return {
+            f.name: getattr(self, f.name)
+            for f in dataclasses.fields(self)
+            if getattr(self, f.name) is not None
+        }
 
 
 _LIFECYCLE_FRAMES = (StartFrame, EndFrame, CancelFrame, StopFrame)
@@ -725,7 +741,7 @@ class BaseAgent(BaseObject, BusSubscriber):
         self,
         agent_name: str,
         *,
-        args: Union[BaseModel, dict, None] = None,
+        args: Optional[AgentActivationArgs] = None,
     ) -> None:
         """Activate an agent by name.
 
@@ -734,13 +750,13 @@ class BaseAgent(BaseObject, BusSubscriber):
 
         Args:
             agent_name: The name of the agent to activate.
-            args: Optional arguments forwarded to the target agent's
-                ``on_activated``.
+            args: Optional ``AgentActivationArgs`` forwarded to the
+                target agent's ``on_activated``.
         """
-        if isinstance(args, BaseModel):
-            args = args.model_dump(exclude_none=True)
         await self.send_message(
-            BusActivateAgentMessage(source=self.name, target=agent_name, args=args)
+            BusActivateAgentMessage(
+                source=self.name, target=agent_name, args=args.to_dict() if args else None
+            )
         )
 
     async def deactivate_agent(self, agent_name: str) -> None:
@@ -757,7 +773,7 @@ class BaseAgent(BaseObject, BusSubscriber):
         self,
         agent_name: str,
         *,
-        args: Union[BaseModel, dict, None] = None,
+        args: Optional[AgentActivationArgs] = None,
     ) -> None:
         """Hand off to another agent.
 
