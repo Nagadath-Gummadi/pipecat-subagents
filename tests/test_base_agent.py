@@ -59,10 +59,10 @@ class StubAgent(BaseAgent):
 
 
 class BridgedStubAgent(BaseAgent):
-    """Minimal BaseAgent subclass with bridged=True for testing."""
+    """Minimal BaseAgent subclass with bridged=() for testing."""
 
     def __init__(self, name, *, bus, active=False):
-        super().__init__(name, bus=bus, active=active, bridged=True)
+        super().__init__(name, bus=bus, active=active, bridged=())
 
     async def build_pipeline(self) -> Pipeline:
         return Pipeline([IdentityFilter()])
@@ -487,7 +487,7 @@ class _GeneratingAgent(BaseAgent):
     """Agent whose pipeline generates new frames (for testing edge sinks)."""
 
     def __init__(self, name, *, bus):
-        super().__init__(name, bus=bus, bridged=True)
+        super().__init__(name, bus=bus, bridged=())
 
     async def build_pipeline(self) -> Pipeline:
         return Pipeline([_FrameGenerator()])
@@ -636,6 +636,192 @@ class TestEdgeToBus(unittest.IsolatedAsyncioTestCase):
         generated = [m for m in text_msgs if m.frame.text == "generated_hello"]
         self.assertEqual(len(generated), 1)
         self.assertEqual(generated[0].direction, FrameDirection.DOWNSTREAM)
+
+
+    async def test_bridged_agent_accepts_matching_bridge(self):
+        """Bridged agent with named bridge accepts frames from that bridge."""
+        bus = self.bus
+        agent = BaseAgent("agent", bus=bus, active=True, bridged=("voice",))
+        task = await agent.create_pipeline_task()
+
+        received = []
+        task.set_reached_downstream_filter((TextFrame,))
+
+        @task.event_handler("on_frame_reached_downstream")
+        async def on_frame(task, frame):
+            received.append(frame)
+
+        async def inject_frame():
+            await asyncio.sleep(0.05)
+            await bus.send(
+                BusFrameMessage(
+                    source="other",
+                    frame=TextFrame(text="voice_frame"),
+                    direction=FrameDirection.DOWNSTREAM,
+                    bridge="voice",
+                )
+            )
+            await asyncio.sleep(0.05)
+            await task.queue_frame(EndFrame())
+
+        await bus.start()
+        runner = PipelineRunner()
+        await asyncio.gather(runner.run(task), inject_frame())
+        await bus.stop()
+
+        self.assertEqual(len(received), 1)
+        self.assertEqual(received[0].text, "voice_frame")
+
+    async def test_bridged_agent_rejects_non_matching_bridge(self):
+        """Bridged agent with named bridge rejects frames from other bridges."""
+        bus = self.bus
+        agent = BaseAgent("agent", bus=bus, active=True, bridged=("voice",))
+        task = await agent.create_pipeline_task()
+
+        received = []
+        task.set_reached_downstream_filter((TextFrame,))
+
+        @task.event_handler("on_frame_reached_downstream")
+        async def on_frame(task, frame):
+            received.append(frame)
+
+        async def inject_frame():
+            await asyncio.sleep(0.05)
+            await bus.send(
+                BusFrameMessage(
+                    source="other",
+                    frame=TextFrame(text="video_frame"),
+                    direction=FrameDirection.DOWNSTREAM,
+                    bridge="video",
+                )
+            )
+            await asyncio.sleep(0.05)
+            await task.queue_frame(EndFrame())
+
+        await bus.start()
+        runner = PipelineRunner()
+        await asyncio.gather(runner.run(task), inject_frame())
+        await bus.stop()
+
+        self.assertEqual(len(received), 0)
+
+    async def test_bridged_agent_empty_tuple_accepts_all(self):
+        """Bridged agent with empty tuple accepts frames from any bridge."""
+        bus = self.bus
+        agent = BaseAgent("agent", bus=bus, active=True, bridged=())
+        task = await agent.create_pipeline_task()
+
+        received = []
+        task.set_reached_downstream_filter((TextFrame,))
+
+        @task.event_handler("on_frame_reached_downstream")
+        async def on_frame(task, frame):
+            received.append(frame)
+
+        async def inject_frames():
+            await asyncio.sleep(0.05)
+            await bus.send(
+                BusFrameMessage(
+                    source="other",
+                    frame=TextFrame(text="voice"),
+                    direction=FrameDirection.DOWNSTREAM,
+                    bridge="voice",
+                )
+            )
+            await bus.send(
+                BusFrameMessage(
+                    source="other",
+                    frame=TextFrame(text="video"),
+                    direction=FrameDirection.DOWNSTREAM,
+                    bridge="video",
+                )
+            )
+            await bus.send(
+                BusFrameMessage(
+                    source="other",
+                    frame=TextFrame(text="none"),
+                    direction=FrameDirection.DOWNSTREAM,
+                )
+            )
+            await asyncio.sleep(0.05)
+            await task.queue_frame(EndFrame())
+
+        await bus.start()
+        runner = PipelineRunner()
+        await asyncio.gather(runner.run(task), inject_frames())
+        await bus.stop()
+
+        self.assertEqual(len(received), 3)
+
+    async def test_bridged_agent_multiple_bridges(self):
+        """Bridged agent with multiple bridge names accepts from all listed."""
+        bus = self.bus
+        agent = BaseAgent("agent", bus=bus, active=True, bridged=("voice", "video"))
+        task = await agent.create_pipeline_task()
+
+        received = []
+        task.set_reached_downstream_filter((TextFrame,))
+
+        @task.event_handler("on_frame_reached_downstream")
+        async def on_frame(task, frame):
+            received.append(frame)
+
+        async def inject_frames():
+            await asyncio.sleep(0.05)
+            await bus.send(
+                BusFrameMessage(
+                    source="other",
+                    frame=TextFrame(text="voice"),
+                    direction=FrameDirection.DOWNSTREAM,
+                    bridge="voice",
+                )
+            )
+            await bus.send(
+                BusFrameMessage(
+                    source="other",
+                    frame=TextFrame(text="video"),
+                    direction=FrameDirection.DOWNSTREAM,
+                    bridge="video",
+                )
+            )
+            await bus.send(
+                BusFrameMessage(
+                    source="other",
+                    frame=TextFrame(text="other"),
+                    direction=FrameDirection.DOWNSTREAM,
+                    bridge="other",
+                )
+            )
+            await asyncio.sleep(0.05)
+            await task.queue_frame(EndFrame())
+
+        await bus.start()
+        runner = PipelineRunner()
+        await asyncio.gather(runner.run(task), inject_frames())
+        await bus.stop()
+
+        texts = sorted([r.text for r in received])
+        self.assertEqual(texts, ["video", "voice"])
+
+    async def test_not_bridged_agent_ignores_bridge(self):
+        """Non-bridged agent (bridged=None) has no edge processors."""
+        bus = self.bus
+        sent = capture_bus(bus)
+
+        agent = StubAgent("root", bus=bus)
+        task = await agent.create_pipeline_task()
+
+        async def push_frames():
+            await asyncio.sleep(0.05)
+            await agent.queue_frame(TextFrame(text="test"))
+            await asyncio.sleep(0.05)
+            await agent.queue_frame(EndFrame())
+
+        runner = PipelineRunner()
+        await asyncio.gather(runner.run(task), push_frames())
+
+        bus_frame_msgs = [m for m in sent if isinstance(m, BusFrameMessage)]
+        self.assertEqual(len(bus_frame_msgs), 0)
 
 
 class TestTaskLifecycle(unittest.IsolatedAsyncioTestCase):

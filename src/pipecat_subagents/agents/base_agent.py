@@ -110,6 +110,7 @@ class _BusEdgeProcessor(FrameProcessor, BusSubscriber):
         bus: AgentBus,
         agent: "BaseAgent",
         direction: FrameDirection,
+        bridges: tuple[str, ...] = (),
         exclude_frames: Optional[tuple[type[Frame], ...]] = None,
         **kwargs,
     ):
@@ -117,6 +118,7 @@ class _BusEdgeProcessor(FrameProcessor, BusSubscriber):
         self._bus = bus
         self._agent = agent
         self._direction = direction
+        self._bridges = bridges
         self._exclude_frames = exclude_frames or ()
 
     async def setup(self, setup: FrameProcessorSetup):
@@ -151,6 +153,8 @@ class _BusEdgeProcessor(FrameProcessor, BusSubscriber):
         if not self._agent.active:
             return
         if message.target and message.target != self._agent.name:
+            return
+        if self._bridges and message.bridge not in self._bridges:
             return
         await self.push_frame(message.frame, message.direction)
 
@@ -227,7 +231,7 @@ class BaseAgent(BaseObject, BusSubscriber):
         *,
         bus: AgentBus,
         active: bool = False,
-        bridged: bool = False,
+        bridged: Optional[tuple[str, ...]] = None,
         exclude_frames: Optional[tuple[type[Frame], ...]] = None,
     ):
         """Initialize the BaseAgent.
@@ -236,11 +240,12 @@ class BaseAgent(BaseObject, BusSubscriber):
             name: Unique name for this agent.
             bus: The `AgentBus` for inter-agent communication.
             active: Whether the agent starts active. Defaults to False.
-            bridged: Whether to add edge processors for bus frame routing.
-                When True, the pipeline receives frames from and sends
-                frames to the bus. Defaults to False.
+            bridged: Bridge configuration. ``None`` means not bridged.
+                An empty tuple ``()`` means bridged, accepting frames
+                from all bridges. A tuple of names like ``("voice",)``
+                means bridged, accepting only frames from those bridges.
             exclude_frames: Frame types to exclude from bus forwarding
-                when ``bridged=True``. Lifecycle frames are always excluded.
+                when bridged. Lifecycle frames are always excluded.
         """
         super().__init__(name=name)
 
@@ -573,7 +578,7 @@ class BaseAgent(BaseObject, BusSubscriber):
     async def create_pipeline(self, user_pipeline: Pipeline) -> Pipeline:
         """Assemble the final pipeline from the user pipeline.
 
-        When ``bridged=True``, wraps the pipeline with bus edge processors.
+        When bridged, wraps the pipeline with bus edge processors.
         Can be overridden to add additional processors.
 
         Args:
@@ -582,11 +587,12 @@ class BaseAgent(BaseObject, BusSubscriber):
         Returns:
             The assembled ``Pipeline``.
         """
-        if self._bridged:
+        if self._bridged is not None:
             edge_source = _BusEdgeProcessor(
                 bus=self._bus,
                 agent=self,
                 direction=FrameDirection.UPSTREAM,
+                bridges=self._bridged,
                 exclude_frames=self._exclude_frames,
                 name=f"{self.name}::EdgeSource",
             )
@@ -594,6 +600,7 @@ class BaseAgent(BaseObject, BusSubscriber):
                 bus=self._bus,
                 agent=self,
                 direction=FrameDirection.DOWNSTREAM,
+                bridges=self._bridged,
                 exclude_frames=self._exclude_frames,
                 name=f"{self.name}::EdgeSink",
             )
