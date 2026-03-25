@@ -163,6 +163,8 @@ class BaseAgent(BaseObject, BusSubscriber):
       for a progress update.
     - ``on_task_completed(task_id, responses)``: Called when all agents in a
       task group have responded.
+    - ``on_task_error(task_id, agent_name, response, status)``: Called when a
+      worker errors and the group is cancelled (``cancel_on_error``).
     - ``on_task_stream_start(task_id, agent_name, data)``: Called when a task
       agent begins streaming.
     - ``on_task_stream_data(task_id, agent_name, data)``: Called for each
@@ -187,6 +189,7 @@ class BaseAgent(BaseObject, BusSubscriber):
     - on_task_update: A worker sent a progress update.
     - on_task_update_requested: Requester asked for a progress update.
     - on_task_completed: All workers in a task group responded.
+    - on_task_error: A worker errored and the group was cancelled.
     - on_task_stream_start: A worker started streaming.
     - on_task_stream_data: A worker sent a streaming chunk.
     - on_task_stream_end: A worker finished streaming.
@@ -267,6 +270,7 @@ class BaseAgent(BaseObject, BusSubscriber):
         self._register_event_handler("on_task_update")
         self._register_event_handler("on_task_update_requested")
         self._register_event_handler("on_task_completed")
+        self._register_event_handler("on_task_error")
         self._register_event_handler("on_task_stream_start")
         self._register_event_handler("on_task_stream_data")
         self._register_event_handler("on_task_stream_end")
@@ -489,6 +493,20 @@ class BaseAgent(BaseObject, BusSubscriber):
         Args:
             task_id: The task identifier.
             responses: Collected responses keyed by agent name.
+        """
+        pass
+
+    async def on_task_error(self, message: BusTaskResponseMessage) -> None:
+        """Called when a task group is cancelled due to a worker error.
+
+        Fires when a worker responds with ``ERROR`` or ``FAILED`` status
+        and ``cancel_on_error`` is set. The group is cancelled and
+        ``on_task_completed`` will not fire. Partial responses from
+        workers that completed before the error are available in
+        the task group's ``responses``.
+
+        Args:
+            message: The ``BusTaskResponseMessage`` that triggered the error.
         """
         pass
 
@@ -1284,6 +1302,9 @@ class BaseAgent(BaseObject, BusSubscriber):
         if message.status in (TaskStatus.ERROR, TaskStatus.FAILED):
             group = self._task_groups.get(message.task_id)
             if group and group.cancel_on_error:
+                group.responses[message.source] = message.response or {}
+                await self.on_task_error(message)
+                await self._call_event_handler("on_task_error", message)
                 await self.cancel_task(message.task_id, reason=f"worker '{message.source}' errored")
                 return
 

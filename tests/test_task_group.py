@@ -227,6 +227,56 @@ class TestTaskGroupContext(unittest.IsolatedAsyncioTestCase):
             async with parent.request_task_group("worker") as tg:
                 pass
 
+        # Error response is tracked in partial responses
+        self.assertEqual(tg.responses, {"worker": {"error": "failed"}})
+
+    async def test_task_group_on_task_error_fires(self):
+        """on_task_error fires when a worker errors with cancel_on_error."""
+        parent = StubAgent("parent", bus=self.bus)
+        parent.set_task_manager(self.tm)
+        await setup_agent(self.bus, self.registry, parent)
+
+        worker = TaskWorkerAgent(
+            "worker", bus=self.bus, response={"error": "boom"}, status=TaskStatus.ERROR
+        )
+        await setup_agent(self.bus, self.registry, worker)
+
+        errors = []
+
+        @parent.event_handler("on_task_error")
+        async def on_error(agent, message):
+            errors.append(message)
+
+        with self.assertRaises(TaskGroupError):
+            async with parent.request_task_group("worker") as tg:
+                pass
+
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0].source, "worker")
+        self.assertEqual(errors[0].response, {"error": "boom"})
+        self.assertEqual(errors[0].status, TaskStatus.ERROR)
+
+    async def test_task_group_partial_responses_on_error(self):
+        """Partial responses from successful workers are available after error."""
+        parent = StubAgent("parent", bus=self.bus)
+        parent.set_task_manager(self.tm)
+        await setup_agent(self.bus, self.registry, parent)
+
+        # w1 responds successfully, w2 responds with error.
+        # Order depends on bus dispatch, but both are registered.
+        w1 = TaskWorkerAgent("w1", bus=self.bus, response={"ok": True})
+        w2 = TaskWorkerAgent("w2", bus=self.bus, response={"error": "fail"}, status=TaskStatus.ERROR)
+        await setup_agent(self.bus, self.registry, w1)
+        await setup_agent(self.bus, self.registry, w2)
+
+        with self.assertRaises(TaskGroupError):
+            async with parent.request_task_group("w1", "w2") as tg:
+                pass
+
+        # w2's error response should be in partial responses
+        self.assertIn("w2", tg.responses)
+        self.assertEqual(tg.responses["w2"], {"error": "fail"})
+
     async def test_task_group_task_id_available(self):
         """task_id is available inside the async with block."""
         parent = StubAgent("parent", bus=self.bus)
