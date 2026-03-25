@@ -31,9 +31,15 @@ uv add pipecat-ai-subagents
 
 > Requires Python 3.10+ and [Pipecat](https://github.com/pipecat-ai/pipecat?tab=readme-ov-file#-getting-started).
 
-## Examples
+## Getting started
 
-The [examples](examples/) directory includes complete working implementations. See the [examples README](examples/README.md) for setup and running instructions.
+A minimal system has three parts: a **runner** that manages lifecycle, a **bus** for communication, and one or more **agents** that do work. Common patterns:
+
+- **Single agent** — One agent with a complete pipeline (transport, STT, LLM, TTS). See [`single_agent.py`](examples/local/agent-handoff/single_agent.py).
+- **Agent handoff** — A main agent owns the transport and bridges frames to the bus. Child agents each run their own LLM and transfer control between each other via `handoff_to()`. See [`two_llm_agents.py`](examples/local/agent-handoff/two_llm_agents.py).
+- **Parallel tasks** — A parent agent dispatches work to multiple workers and collects results. See [`parallel_debate.py`](examples/local/parallel-debate/parallel_debate.py).
+
+More examples are available in the [examples](examples/) directory.
 
 ## Architecture
 
@@ -83,15 +89,11 @@ Network buses need to serialize messages to bytes. Types that aren't JSON-native
 
 #### Bridge
 
-The `BusBridgeProcessor` is a Pipecat pipeline processor placed in an agent's pipeline (typically a transport/session agent) where an LLM would normally go. It sends non-lifecycle frames to the bus and injects incoming bus frames at its position, connecting the pipeline to whichever agent is active on the bus.
+The `BusBridgeProcessor` is a Pipecat pipeline processor placed in an agent's pipeline (typically a transport/session agent) where an LLM would normally go. It sends non-lifecycle frames to the bus and injects incoming bus frames at its position, connecting the pipeline to whichever agent is active on the bus. Child agents that participate in this frame flow use `bridged=True`, which adds edge processors that route frames to and from the bus.
 
 | Class                | Description                                                                |
 |----------------------|----------------------------------------------------------------------------|
 | `BusBridgeProcessor` | Mid-pipeline processor that bridges frames between a pipeline and the bus. |
-
-```python
-Pipeline([transport.input(), stt, context_agg.user(), bridge, tts, transport.output(), context_agg.assistant()])
-```
 
 ### Runner
 
@@ -100,12 +102,6 @@ The runner orchestrates the system: it creates pipeline tasks, manages agent lif
 | Class         | Description                                                                                         |
 |---------------|-----------------------------------------------------------------------------------------------------|
 | `AgentRunner` | Entry point for running a multi-agent system. Owns the bus (or accepts one) and the agent registry. |
-
-```python
-runner = AgentRunner()
-await runner.add_agent(main_agent)
-await runner.run()
-```
 
 ### Registry and visibility
 
@@ -129,16 +125,6 @@ Agents are the building blocks of a multi-agent system. Each agent connects to t
 | `LLMAgent`   | Your agent needs an LLM. Adds `build_llm()`, `@tool` registration, and message injection on activation. Pass `bridged=True` for agents that receive frames from a `BusBridgeProcessor`. |
 | `FlowsAgent` | Your agent needs structured conversation flows via [Pipecat Flows](https://github.com/pipecat-ai/pipecat-flows). Always bridged.                                                        |
 
-```python
-class MyAgent(LLMAgent):
-    def build_llm(self) -> LLMService:
-        return OpenAILLMService(api_key="...", settings=OpenAILLMSettings(system_instruction="..."))
-
-    @tool
-    async def my_function(self, params, arg: str):
-        ...
-```
-
 #### Naming
 
 Every agent has a unique name passed at construction. Names are used for bus message targeting, activation, task routing, and logging. Choose short, descriptive names (e.g. `"greeter"`, `"support"`, `"worker"`). In distributed setups, agent names must be unique across all runners.
@@ -153,11 +139,6 @@ Hooks about this agent's own state.
 | `on_error(error, fatal)` | A pipeline error occurred.                              |
 | `on_activated(args)`     | Agent is activated via `activate_agent()`.              |
 | `on_deactivated()`       | Agent is deactivated via `deactivate_agent()`.          |
-
-```python
-# Transfer control to another agent
-await self.handoff_to("support", args=LLMActivationArgs(messages=[...]))
-```
 
 #### Other agent events
 
@@ -210,19 +191,6 @@ A parent sends work with `request_task()` (fire-and-forget) or `request_task_gro
        on_task_completed() │                                  │
 ```
 
-#### Task groups
-
-A task group tracks multiple workers launched together. Use `request_task_group()` for a structured context that waits for all workers to respond, with support for timeouts, cancellation, and an async iterator for intermediate events:
-
-```python
-async with self.request_task_group("w1", "w2", payload=data, timeout=30) as tg:
-    async for event in tg:
-        print(f"{event.agent_name} [{event.type}]: {event.data}")
-
-for name, result in tg.responses.items():
-    print(name, result)
-```
-
 #### Task hooks
 
 | Hook                              | When it fires                                                                     |
@@ -233,6 +201,10 @@ for name, result in tg.responses.items():
 | `on_task_response()`              | Parent: a worker sent a response.                                                 |
 | `on_task_completed()`             | Parent: all workers in the task group have responded.                             |
 | `on_task_stream_start/data/end()` | Parent: a worker is streaming incremental results.                                |
+
+### Task groups
+
+A task group tracks multiple workers launched together. `request_task_group()` returns a structured context that waits for all workers to respond. It supports timeouts, automatic cancellation on worker error, and an async iterator for receiving intermediate events (updates and streaming data) while waiting for completion. Results are collected in `responses` keyed by agent name. For fire-and-forget use cases, `request_task()` sends work without waiting.
 
 ### Proxy Agents
 
