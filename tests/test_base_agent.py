@@ -1012,7 +1012,7 @@ class TestTaskLifecycle(unittest.IsolatedAsyncioTestCase):
 
         task_id = await parent.request_task("worker")
 
-        group = parent._task_groups[task_id]
+        group = parent.task_groups[task_id]
         self.assertIsNone(group.timeout_task)
 
 
@@ -1024,15 +1024,15 @@ class TestTaskGroupContext(unittest.IsolatedAsyncioTestCase):
     async def test_task_group_collects_responses(self):
         """task_group() context manager collects all responses."""
         bus = self.bus
+        sent = capture_bus(bus)
         parent = StubAgent("parent", bus=bus)
-        w1 = StubAgent("w1", bus=bus)
-        w2 = StubAgent("w2", bus=bus)
         parent.set_registry(self.registry)
         await register_agents(self.registry, "w1", "w2")
 
         async def respond():
-            await asyncio.sleep(0)
-            tg_ref = list(parent._task_groups.values())[0]
+            while not any(isinstance(m, BusTaskRequestMessage) for m in sent):
+                await asyncio.sleep(0)
+            tg_ref = list(parent.task_groups.values())[0]
             task_id = tg_ref.task_id
             await parent.on_bus_message(
                 BusTaskResponseMessage(
@@ -1064,7 +1064,7 @@ class TestTaskGroupContext(unittest.IsolatedAsyncioTestCase):
         async def respond():
             while not any(isinstance(m, BusTaskRequestMessage) for m in sent):
                 await asyncio.sleep(0)
-            tg_ref = list(parent._task_groups.values())[0]
+            tg_ref = list(parent.task_groups.values())[0]
             await parent.on_bus_message(
                 BusTaskResponseMessage(
                     source="w1", target="parent", task_id=tg_ref.task_id, response={"ok": True}
@@ -1093,8 +1093,9 @@ class TestTaskGroupContext(unittest.IsolatedAsyncioTestCase):
         await register_agents(self.registry, "worker")
 
         async def cancel_it():
-            await asyncio.sleep(0)
-            tg_ref = list(parent._task_groups.values())[0]
+            while not parent.task_groups:
+                await asyncio.sleep(0)
+            tg_ref = list(parent.task_groups.values())[0]
             await parent.cancel_task(tg_ref.task_id, reason="manual cancel")
 
         asyncio.get_event_loop().call_soon(lambda: asyncio.ensure_future(cancel_it()))
@@ -1160,8 +1161,9 @@ class TestTaskGroupContext(unittest.IsolatedAsyncioTestCase):
         await register_agents(self.registry, "worker")
 
         async def error_response():
-            await asyncio.sleep(0)
-            tg_ref = list(parent._task_groups.values())[0]
+            while not parent.task_groups:
+                await asyncio.sleep(0)
+            tg_ref = list(parent.task_groups.values())[0]
             await parent.on_bus_message(
                 BusTaskResponseMessage(
                     source="worker",
@@ -1191,8 +1193,9 @@ class TestTaskGroupContext(unittest.IsolatedAsyncioTestCase):
         captured_task_id = None
 
         async def respond():
-            await asyncio.sleep(0)
-            tg_ref = list(parent._task_groups.values())[0]
+            while not parent.task_groups:
+                await asyncio.sleep(0)
+            tg_ref = list(parent.task_groups.values())[0]
             await parent.on_bus_message(
                 BusTaskResponseMessage(
                     source="worker", target="parent", task_id=tg_ref.task_id, response={}
@@ -1222,8 +1225,9 @@ class TestTaskGroupContext(unittest.IsolatedAsyncioTestCase):
             completed.append((task_id, responses))
 
         async def respond():
-            await asyncio.sleep(0)
-            tg_ref = list(parent._task_groups.values())[0]
+            while not parent.task_groups:
+                await asyncio.sleep(0)
+            tg_ref = list(parent.task_groups.values())[0]
             await parent.on_bus_message(
                 BusTaskResponseMessage(
                     source="w1", target="parent", task_id=tg_ref.task_id, response={"ok": True}

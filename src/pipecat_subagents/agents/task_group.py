@@ -120,7 +120,7 @@ class TaskGroupContext:
         return self._group.responses
 
     async def __aenter__(self) -> TaskGroupContext:
-        self._group = await self._agent._create_task_group_and_request(
+        self._group = await self._agent.create_task_group_and_request_task(
             list(self._agent_names),
             payload=self._payload,
             timeout=self._timeout,
@@ -130,7 +130,7 @@ class TaskGroupContext:
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> bool:
         if exc_type is not None:
-            if self._group and self._group.task_id in self._agent._task_groups:
+            if self._group and self._group.task_id in self._agent.task_groups:
                 await self._agent.cancel_task(
                     self._group.task_id, reason="context exited with error"
                 )

@@ -312,6 +312,11 @@ class BaseAgent(BaseObject, BusSubscriber):
         """The ID of the task this agent is currently working on."""
         return self._task_id
 
+    @property
+    def task_groups(self) -> dict[str, TaskGroup]:
+        """Active task groups launched by this agent, keyed by task_id."""
+        return self._task_groups
+
     def set_registry(self, registry: AgentRegistry) -> None:
         """Set the shared agent registry.
 
@@ -829,6 +834,9 @@ class BaseAgent(BaseObject, BusSubscriber):
         """Send a task request to agents.
 
         Waits for all agents to be ready before sending requests.
+        Does not wait for the task group to complete; use callbacks
+        (``on_task_response``, ``on_task_completed``) or ``task_group``
+        for that.
 
         Args:
             *agent_names: Names of the agents to send the task to.
@@ -841,16 +849,12 @@ class BaseAgent(BaseObject, BusSubscriber):
         Returns:
             The generated task_id shared by all agents in the group.
         """
-        ready = await self._wait_agents_ready(list(agent_names))
-        await ready
-
-        group = self._create_task_group(
-            list(agent_names), timeout=timeout, cancel_on_error=cancel_on_error
+        group = await self.create_task_group_and_request_task(
+            list(agent_names),
+            payload=payload,
+            timeout=timeout,
+            cancel_on_error=cancel_on_error,
         )
-
-        for name in agent_names:
-            await self._send_task_request(name, group.task_id, payload)
-
         return group.task_id
 
     async def cancel_task(self, task_id: str, *, reason: Optional[str] = None) -> None:
@@ -881,11 +885,11 @@ class BaseAgent(BaseObject, BusSubscriber):
     ) -> TaskGroupContext:
         """Create a structured task group context manager.
 
-        Sends task requests on enter, waits for all responses on exit.
-        Agents must already be added and ready before entering the
-        context. On normal completion, results are available via
-        ``responses``. On worker error (with ``cancel_on_error=True``)
-        or timeout, raises ``TaskGroupError``.
+        Waits for agents to be ready, sends task requests, and waits
+        for all responses. On normal completion, results are available
+        via ``responses``. On worker error (with
+        ``cancel_on_error=True``) or timeout, raises
+        ``TaskGroupError``.
 
         Args:
             *agent_names: Names of the agents to send the task to.
@@ -1123,7 +1127,7 @@ class BaseAgent(BaseObject, BusSubscriber):
             asyncio.gather(*(ev.wait() for ev in ready_events.values()))
         )
 
-    async def _create_task_group_and_request(
+    async def create_task_group_and_request_task(
         self,
         agent_names: list[str],
         *,
@@ -1131,25 +1135,34 @@ class BaseAgent(BaseObject, BusSubscriber):
         timeout: Optional[float] = None,
         cancel_on_error: bool = True,
     ) -> TaskGroup:
+        """Wait for agents to be ready, create a task group, and send requests.
+
+        Waits for all agents to be registered as ready, then creates
+        the group and sends a task request to each agent. Does not wait
+        for the group to complete; call ``group.wait()`` or use
+        ``task_group()`` for that.
+
+        Args:
+            agent_names: Names of the agents to send the task to.
+            payload: Optional structured data describing the work.
+            timeout: Optional timeout in seconds. Covers both the
+                ready-wait and task execution.
+            cancel_on_error: Whether to cancel the group if a worker
+                errors. Defaults to True.
+
+        Returns:
+            The created ``TaskGroup``.
+
+        Raises:
+            asyncio.TimeoutError: If agents are not ready within
+                the timeout.
+        """
+        all_ready = await self._wait_agents_ready(agent_names)
+        await asyncio.wait_for(all_ready, timeout=timeout)
+
         group = self._create_task_group(
             agent_names, timeout=timeout, cancel_on_error=cancel_on_error
         )
-
-        # Wait for agents to be ready, racing against group timeout.
-        all_ready = await self._wait_agents_ready(agent_names)
-        group_done = asyncio.ensure_future(group.wait())
-
-        done, pending = await asyncio.wait(
-            [all_ready, group_done], return_when=asyncio.FIRST_COMPLETED
-        )
-        for task in pending:
-            task.cancel()
-        await asyncio.gather(*pending, return_exceptions=True)
-
-        if group_done in done:
-            if group_done.exception():
-                pass  # Consumed; caller handles via group.wait()
-            return group
 
         for name in agent_names:
             await self._send_task_request(name, group.task_id, payload)
