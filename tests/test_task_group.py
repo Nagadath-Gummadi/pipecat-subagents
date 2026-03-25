@@ -180,6 +180,19 @@ class TestTaskGroupContext(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("timeout", str(ctx.exception))
 
+    async def test_task_group_raises_on_ready_timeout(self):
+        """task_group() raises TaskGroupError when agents aren't ready in time."""
+        parent = StubAgent("parent", bus=self.bus)
+        parent.set_task_manager(self.tm)
+        await setup_agent(self.bus, self.registry, parent)
+
+        # "ghost" is never registered, so the ready-wait times out
+        with self.assertRaises(TaskGroupError) as ctx:
+            async with parent.request_task_group("ghost", timeout=0.05) as tg:
+                pass
+
+        self.assertIn("not ready", str(ctx.exception))
+
     async def test_task_group_cancels_on_block_exception(self):
         """task_group() cancels remaining tasks when the block raises."""
         sent = capture_bus(self.bus)

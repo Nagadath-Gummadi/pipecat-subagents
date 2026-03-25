@@ -32,7 +32,12 @@ from pipecat.utils.asyncio.task_manager import TaskManager
 from pipecat.utils.base_object import BaseObject
 from pydantic import BaseModel
 
-from pipecat_subagents.agents.task_group import TaskGroup, TaskGroupContext, TaskGroupEvent
+from pipecat_subagents.agents.task_group import (
+    TaskGroup,
+    TaskGroupContext,
+    TaskGroupError,
+    TaskGroupEvent,
+)
 from pipecat_subagents.bus import (
     AgentBus,
     BusActivateAgentMessage,
@@ -1157,11 +1162,13 @@ class BaseAgent(BaseObject, BusSubscriber):
             The created ``TaskGroup``.
 
         Raises:
-            asyncio.TimeoutError: If agents are not ready within
-                the timeout.
+            TaskGroupError: If agents are not ready within the timeout.
         """
         all_ready = await self._wait_agents_ready(agent_names)
-        await asyncio.wait_for(all_ready, timeout=timeout)
+        try:
+            await asyncio.wait_for(all_ready, timeout=timeout)
+        except asyncio.TimeoutError:
+            raise TaskGroupError("agents not ready within timeout")
 
         group = self._create_task_group(
             agent_names, timeout=timeout, cancel_on_error=cancel_on_error
