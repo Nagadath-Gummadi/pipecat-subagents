@@ -15,8 +15,6 @@ from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.utils.asyncio.task_manager import TaskManager, TaskManagerParams
 
 from pipecat_subagents.agents.base_agent import BaseAgent
-from pipecat_subagents.registry import AgentRegistry
-from pipecat_subagents.types import AgentReadyData
 from pipecat_subagents.bus import (
     AsyncQueueBus,
     BusActivateAgentMessage,
@@ -34,6 +32,8 @@ from pipecat_subagents.bus import (
     BusTaskStreamStartMessage,
     BusTaskUpdateMessage,
 )
+from pipecat_subagents.registry import AgentRegistry
+from pipecat_subagents.types import AgentReadyData
 
 
 class _FrameGenerator(FrameProcessor):
@@ -986,7 +986,10 @@ class TestTaskLifecycle(unittest.IsolatedAsyncioTestCase):
 
         task_id = await parent.request_task("worker", timeout=0.5)
 
-        # Respond immediately
+        # Let the timeout task start before responding
+        await asyncio.sleep(0)
+
+        # Respond before timeout fires
         await parent.on_bus_message(
             BusTaskResponseMessage(
                 source="worker", target="parent", task_id=task_id, response={"ok": True}

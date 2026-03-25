@@ -1123,9 +1123,7 @@ class BaseAgent(BaseObject, BusSubscriber):
 
             await self._registry.watch(name, _on_ready)
 
-        return asyncio.ensure_future(
-            asyncio.gather(*(ev.wait() for ev in ready_events.values()))
-        )
+        return asyncio.ensure_future(asyncio.gather(*(ev.wait() for ev in ready_events.values())))
 
     async def create_task_group_and_request_task(
         self,

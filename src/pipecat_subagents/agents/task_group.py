@@ -98,6 +98,17 @@ class TaskGroupContext:
         timeout: Optional[float] = None,
         cancel_on_error: bool = True,
     ):
+        """Initialize the TaskGroupContext.
+
+        Args:
+            agent: The parent `BaseAgent` that owns this task group.
+            agent_names: Names of the agents to send the task to.
+            payload: Optional structured data describing the work.
+            timeout: Optional timeout in seconds covering both the
+                ready-wait and task execution.
+            cancel_on_error: Whether to cancel the group if a worker
+                errors. Defaults to True.
+        """
         self._agent = agent
         self._agent_names = agent_names
         self._payload = payload

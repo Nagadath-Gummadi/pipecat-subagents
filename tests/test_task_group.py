@@ -123,9 +123,7 @@ class TestTaskGroupContext(unittest.IsolatedAsyncioTestCase):
 
         with self.assertRaises(TaskGroupError) as ctx:
             async with parent.task_group("worker") as tg:
-                asyncio.ensure_future(
-                    parent.cancel_task(tg.task_id, reason="manual cancel")
-                )
+                asyncio.ensure_future(parent.cancel_task(tg.task_id, reason="manual cancel"))
 
         self.assertIn("manual cancel", str(ctx.exception))
 
