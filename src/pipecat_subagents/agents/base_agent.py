@@ -750,7 +750,7 @@ class BaseAgent(BaseObject, BusSubscriber):
         agent._parent = self.name
         self._children.append(agent)
         if self._registry:
-            self._registry.watch(agent.name, self._on_watched_agent_ready)
+            await self._registry.watch(agent.name, self._on_watched_agent_ready)
         await self.send_message(BusAddAgentMessage(source=self.name, agent=agent))
 
     async def activate_agent(
@@ -817,10 +817,7 @@ class BaseAgent(BaseObject, BusSubscriber):
         """
         if self._registry:
             logger.debug(f"Agent '{self}': watching for agent '{agent_name}'")
-            self._registry.watch(agent_name, self._on_watched_agent_ready)
-            data = self._registry.get(agent_name)
-            if data:
-                await self._on_watched_agent_ready(data)
+            await self._registry.watch(agent_name, self._on_watched_agent_ready)
 
     async def start_task(
         self,
@@ -1142,9 +1139,48 @@ class BaseAgent(BaseObject, BusSubscriber):
         args: Optional[dict],
         payload: Optional[dict],
     ) -> None:
-        await asyncio.sleep(0)
+        if not self._registry:
+            raise RuntimeError(f"Agent '{self}': registry not available.")
+
+        # Watch for each agent to become ready
+        ready_events: dict[str, asyncio.Event] = {}
+        for agent in agents:
+            event = asyncio.Event()
+            ready_events[agent.name] = event
+
+            async def _on_ready(data, ev=event):
+                ev.set()
+
+            await self._registry.watch(agent.name, _on_ready)
+
+        # Add all agents (runner starts their pipelines)
         for agent in agents:
             await self.add_agent(agent)
+
+        # Wait for all agents to be ready, or for the group to
+        # fail (e.g. timeout). Whichever comes first wins.
+        all_ready = asyncio.ensure_future(
+            asyncio.gather(*(ev.wait() for ev in ready_events.values()))
+        )
+        group_done = asyncio.ensure_future(group.wait())
+
+        done, pending = await asyncio.wait(
+            [all_ready, group_done], return_when=asyncio.FIRST_COMPLETED
+        )
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+
+        # If the group failed before agents were ready, bail out.
+        # Suppress the TaskGroupError here; the caller (task_group
+        # context or start_task) handles it.
+        if group_done in done:
+            if group_done.exception():
+                pass  # Consumed; __aexit__ will re-raise via group.wait()
+            return
+
+        # Activate and send task requests
+        for agent in agents:
             await self.activate_agent(agent.name, args=args)
             await self._send_task_request(agent.name, group.task_id, payload)
 
