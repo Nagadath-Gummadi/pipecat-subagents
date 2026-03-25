@@ -169,8 +169,8 @@ class BaseAgent(BaseObject, BusSubscriber):
       streaming chunk from a task agent.
     - ``on_task_stream_end(task_id, agent_name, data)``: Called when a task
       agent finishes streaming.
-    - ``on_task_cancelled(task_id, reason)``: Called when this agent's task
-      is cancelled by the requester.
+    - ``on_task_cancelled(message)``: Called when this agent's task is
+      cancelled by the requester.
     - ``on_bus_message(message)``: Called for bus messages after default
       lifecycle handling.
 
@@ -537,14 +537,13 @@ class BaseAgent(BaseObject, BusSubscriber):
         """
         pass
 
-    async def on_task_cancelled(self, task_id: str, reason: Optional[str]) -> None:
+    async def on_task_cancelled(self, message: BusTaskCancelMessage) -> None:
         """Called when this agent's task is cancelled by the requester.
 
         Override to clean up resources or stop in-progress work.
 
         Args:
-            task_id: The task identifier.
-            reason: Optional human-readable reason for cancellation.
+            message: The ``BusTaskCancelMessage`` with task_id and reason.
         """
         pass
 
@@ -1318,8 +1317,8 @@ class BaseAgent(BaseObject, BusSubscriber):
         ``status="cancelled"``, same path as completed or failed tasks.
         """
         if self._task_id == message.task_id:
-            await self.on_task_cancelled(message.task_id, message.reason)
-            await self._call_event_handler("on_task_cancelled", message.task_id, message.reason)
+            await self.on_task_cancelled(message)
+            await self._call_event_handler("on_task_cancelled", message)
             await self.send_task_response(status=TaskStatus.CANCELLED)
 
     async def _handle_task_stream_start(self, message: BusTaskStreamStartMessage) -> None:
