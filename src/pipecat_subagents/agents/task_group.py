@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, ClassVar, Optional
 
 if TYPE_CHECKING:
     from pipecat_subagents.agents.base_agent import BaseAgent
@@ -23,6 +23,26 @@ class TaskGroupError(Exception):
 
 
 @dataclass
+class TaskGroupEvent:
+    """An event received from a worker during task group execution.
+
+    Parameters:
+        type: The event type.
+        agent_name: The name of the agent that sent the event.
+        data: Optional event payload.
+    """
+
+    UPDATE: ClassVar[str] = "update"
+    STREAM_START: ClassVar[str] = "stream_start"
+    STREAM_DATA: ClassVar[str] = "stream_data"
+    STREAM_END: ClassVar[str] = "stream_end"
+
+    type: str
+    agent_name: str
+    data: Optional[dict] = None
+
+
+@dataclass
 class TaskGroup:
     """Tracks a group of task agents launched together.
 
@@ -32,6 +52,8 @@ class TaskGroup:
         responses: Collected responses keyed by agent name.
         timeout_task: Optional asyncio task that cancels the group on timeout.
         cancel_on_error: Whether to cancel the group if a worker errors.
+        event_queue: Optional queue for streaming events to a
+            ``TaskGroupContext`` async iterator.
     """
 
     task_id: str
@@ -39,6 +61,7 @@ class TaskGroup:
     responses: dict[str, dict] = field(default_factory=dict)
     timeout_task: Optional[asyncio.Task] = None
     cancel_on_error: bool = True
+    event_queue: Optional[asyncio.Queue] = field(default=None, repr=False)
     _done: asyncio.Event = field(default_factory=asyncio.Event, repr=False)
     _error: Optional[str] = field(default=None, repr=False)
 
@@ -60,6 +83,8 @@ class TaskGroup:
     def complete(self) -> None:
         """Signal that all agents have responded."""
         self._done.set()
+        if self.event_queue:
+            self.event_queue.put_nowait(None)
 
     def fail(self, reason: Optional[str] = None) -> None:
         """Signal that the group was cancelled.
@@ -69,21 +94,27 @@ class TaskGroup:
         """
         self._error = reason
         self._done.set()
+        if self.event_queue:
+            self.event_queue.put_nowait(None)
 
 
 class TaskGroupContext:
-    """Async context manager for structured task group execution.
+    """Async context manager and iterator for structured task group execution.
 
     Sends task requests on enter, waits for all responses on exit.
-    Agents must already be added and ready. On normal completion,
-    results are available via ``responses``. On worker error (with
-    ``cancel_on_error=True``) or timeout, raises ``TaskGroupError``.
-    If the ``async with`` block raises, remaining tasks are cancelled.
+    Supports ``async for`` to receive intermediate events (updates
+    and streaming data) from workers while waiting for completion.
+
+    On normal completion, results are available via ``responses``.
+    On worker error (with ``cancel_on_error=True``) or timeout, raises
+    ``TaskGroupError``. If the ``async with`` block raises, remaining
+    tasks are cancelled.
 
     Example::
 
-        async with self.task_group("w1", "w2", payload=data) as tg:
-            pass
+        async with self.request_task_group("w1", "w2", payload=data) as tg:
+            async for event in tg:
+                print(f"{event.agent_name} [{event.type}]: {event.data}")
 
         for name, result in tg.responses.items():
             print(name, result)
@@ -130,6 +161,17 @@ class TaskGroupContext:
             raise RuntimeError("Task group has not been started")
         return self._group.responses
 
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self) -> TaskGroupEvent:
+        if not self._group or not self._group.event_queue:
+            raise StopAsyncIteration
+        event = await self._group.event_queue.get()
+        if event is None:
+            raise StopAsyncIteration
+        return event
+
     async def __aenter__(self) -> TaskGroupContext:
         self._group = await self._agent.create_task_group_and_request_task(
             list(self._agent_names),
@@ -137,6 +179,7 @@ class TaskGroupContext:
             timeout=self._timeout,
             cancel_on_error=self._cancel_on_error,
         )
+        self._group.event_queue = asyncio.Queue()
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> bool:

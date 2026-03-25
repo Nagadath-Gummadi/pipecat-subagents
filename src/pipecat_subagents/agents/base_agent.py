@@ -32,7 +32,7 @@ from pipecat.utils.asyncio.task_manager import TaskManager
 from pipecat.utils.base_object import BaseObject
 from pydantic import BaseModel
 
-from pipecat_subagents.agents.task_group import TaskGroup, TaskGroupContext
+from pipecat_subagents.agents.task_group import TaskGroup, TaskGroupContext, TaskGroupEvent
 from pipecat_subagents.bus import (
     AgentBus,
     BusActivateAgentMessage,
@@ -876,7 +876,7 @@ class BaseAgent(BaseObject, BusSubscriber):
                 )
             group.fail(reason)
 
-    def task_group(
+    def request_task_group(
         self,
         *agent_names: str,
         payload: Optional[dict] = None,
@@ -886,10 +886,13 @@ class BaseAgent(BaseObject, BusSubscriber):
         """Create a structured task group context manager.
 
         Waits for agents to be ready, sends task requests, and waits
-        for all responses. On normal completion, results are available
-        via ``responses``. On worker error (with
-        ``cancel_on_error=True``) or timeout, raises
-        ``TaskGroupError``.
+        for all responses on exit. Supports ``async for`` inside the
+        block to receive intermediate events (updates and streaming
+        data) from workers while waiting.
+
+        On normal completion, results are available via ``responses``.
+        On worker error (with ``cancel_on_error=True``) or timeout,
+        raises ``TaskGroupError``.
 
         Args:
             *agent_names: Names of the agents to send the task to.
@@ -903,8 +906,10 @@ class BaseAgent(BaseObject, BusSubscriber):
 
         Example::
 
-            async with self.task_group("w1", "w2", payload=data) as tg:
-                pass
+            async with self.request_task_group("w1", "w2", payload=data) as tg:
+                async for event in tg:
+                    if event.type == TaskGroupEvent.UPDATE:
+                        print(f"{event.agent_name}: {event.data}")
 
             for name, result in tg.responses.items():
                 print(name, result)
@@ -1138,7 +1143,7 @@ class BaseAgent(BaseObject, BusSubscriber):
         Waits for all agents to be registered as ready, then creates
         the group and sends a task request to each agent. Does not wait
         for the group to complete; call ``group.wait()`` or use
-        ``task_group()`` for that.
+        ``request_task_group()`` for that.
 
         Args:
             agent_names: Names of the agents to send the task to.
@@ -1283,6 +1288,9 @@ class BaseAgent(BaseObject, BusSubscriber):
         await self._call_event_handler(
             "on_task_update", message.task_id, message.source, message.update
         )
+        self._push_task_group_event(
+            message.task_id, TaskGroupEvent(TaskGroupEvent.UPDATE, message.source, message.update)
+        )
 
     async def _handle_task_update_request(self, message: BusTaskUpdateRequestMessage) -> None:
         """Handle a task update request from the requester."""
@@ -1309,12 +1317,18 @@ class BaseAgent(BaseObject, BusSubscriber):
         await self._call_event_handler(
             "on_task_stream_start", message.task_id, message.source, message.data
         )
+        self._push_task_group_event(
+            message.task_id, TaskGroupEvent(TaskGroupEvent.STREAM_START, message.source, message.data)
+        )
 
     async def _handle_task_stream_data(self, message: BusTaskStreamDataMessage) -> None:
         """Handle a streaming task data chunk."""
         await self.on_task_stream_data(message.task_id, message.source, message.data)
         await self._call_event_handler(
             "on_task_stream_data", message.task_id, message.source, message.data
+        )
+        self._push_task_group_event(
+            message.task_id, TaskGroupEvent(TaskGroupEvent.STREAM_DATA, message.source, message.data)
         )
 
     async def _handle_task_stream_end(self, message: BusTaskStreamEndMessage) -> None:
@@ -1323,7 +1337,15 @@ class BaseAgent(BaseObject, BusSubscriber):
         await self._call_event_handler(
             "on_task_stream_end", message.task_id, message.source, message.data
         )
+        self._push_task_group_event(
+            message.task_id, TaskGroupEvent(TaskGroupEvent.STREAM_END, message.source, message.data)
+        )
         await self._track_task_group_response(message.task_id, message.source, message.data)
+
+    def _push_task_group_event(self, task_id: str, event: TaskGroupEvent) -> None:
+        group = self._task_groups.get(task_id)
+        if group and group.event_queue:
+            group.event_queue.put_nowait(event)
 
     async def _track_task_group_response(
         self, task_id: str, source: str, response: Optional[dict]
