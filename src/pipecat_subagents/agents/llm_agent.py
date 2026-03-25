@@ -31,7 +31,7 @@ from pipecat.processors.frame_processor import FrameDirection
 from pipecat.services.llm_service import LLMService
 from pydantic import BaseModel
 
-from pipecat_subagents.agents.base_agent import ActivationArgs, BaseAgent
+from pipecat_subagents.agents.base_agent import AgentActivationArgs, BaseAgent
 from pipecat_subagents.agents.tool import _collect_tools
 from pipecat_subagents.bus import AgentBus
 
@@ -45,7 +45,7 @@ class PipelineFlushFrame(ControlFrame, UninterruptibleFrame):
     pass
 
 
-class LLMActivationArgs(ActivationArgs):
+class LLMAgentActivationArgs(AgentActivationArgs):
     """Activation arguments for LLM agents.
 
     Attributes:
@@ -117,7 +117,7 @@ class LLMAgent(BaseAgent):
         """
         await super().on_activated(args)
 
-        activation = LLMActivationArgs.model_validate(args) if args else LLMActivationArgs()
+        activation = LLMAgentActivationArgs.model_validate(args) if args else LLMAgentActivationArgs()
 
         tools = self.build_tools()
         if tools:

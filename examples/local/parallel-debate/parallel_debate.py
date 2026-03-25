@@ -51,8 +51,9 @@ from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.transports.base_transport import BaseTransport, TransportParams
 from pipecat.transports.daily.transport import DailyParams
 
-from pipecat_subagents.agents import BaseAgent, LLMActivationArgs, LLMAgent, tool
+from pipecat_subagents.agents import BaseAgent, LLMAgentActivationArgs, LLMAgent, tool
 from pipecat_subagents.bus import AgentBus, BusBridgeProcessor
+from pipecat_subagents.bus.messages import BusTaskRequestMessage
 from pipecat_subagents.runner import AgentRunner
 from pipecat_subagents.types import AgentReadyData
 
@@ -117,7 +118,7 @@ class DebateWorker(LLMAgent):
 
         return Pipeline([user_agg, llm, assistant_agg])
 
-    async def on_task_request(self, message):
+    async def on_task_request(self, message: BusTaskRequestMessage) -> None:
         await super().on_task_request(message)
         await self.queue_frame(
             LLMMessagesAppendFrame(
@@ -188,7 +189,7 @@ class DebateAgent(BaseAgent):
         if data.agent_name == "moderator":
             await self.activate_agent(
                 "moderator",
-                args=LLMActivationArgs(
+                args=LLMAgentActivationArgs(
                     messages=[
                         {
                             "role": "user",

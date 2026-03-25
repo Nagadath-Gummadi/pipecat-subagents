@@ -67,7 +67,7 @@ from pipecat_subagents.registry import AgentRegistry
 from pipecat_subagents.types import AgentErrorData, AgentReadyData
 
 
-class ActivationArgs(BaseModel, extra="ignore"):
+class AgentActivationArgs(BaseModel, extra="ignore"):
     """Base activation arguments for any agent.
 
     Parameters:

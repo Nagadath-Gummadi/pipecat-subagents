@@ -50,7 +50,7 @@ from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.transports.base_transport import BaseTransport, TransportParams
 from pipecat.transports.daily.transport import DailyParams
 
-from pipecat_subagents.agents import BaseAgent, LLMActivationArgs, LLMAgent, tool
+from pipecat_subagents.agents import BaseAgent, LLMAgentActivationArgs, LLMAgent, tool
 from pipecat_subagents.bus import AgentBus, BusBridgeProcessor
 from pipecat_subagents.runner import AgentRunner
 from pipecat_subagents.types import AgentReadyData
@@ -103,7 +103,7 @@ class AcmeTTSAgent(LLMAgent):
         )
         await self.handoff_to(
             agent,
-            args=LLMActivationArgs(
+            args=LLMAgentActivationArgs(
                 messages=[{"role": "user", "content": reason}],
             ),
             result_callback=params.result_callback,
@@ -199,7 +199,7 @@ class AcmeAgent(BaseAgent):
             return
         await self.activate_agent(
             "greeter",
-            args=LLMActivationArgs(
+            args=LLMAgentActivationArgs(
                 messages=[
                     {
                         "role": "user",

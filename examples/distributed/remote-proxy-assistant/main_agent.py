@@ -36,7 +36,7 @@ from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.transports.base_transport import BaseTransport, TransportParams
 from pipecat.transports.daily.transport import DailyParams
 
-from pipecat_subagents.agents import BaseAgent, LLMActivationArgs
+from pipecat_subagents.agents import BaseAgent, LLMAgentActivationArgs
 from pipecat_subagents.agents.proxy import WebSocketProxyClientAgent
 from pipecat_subagents.bus import AgentBus, BusBridgeProcessor, BusFrameMessage
 from pipecat_subagents.runner import AgentRunner
@@ -77,7 +77,7 @@ class AcmeAgent(BaseAgent):
         logger.info("Remote assistant agent is ready, activating")
         await self.activate_agent(
             "assistant",
-            args=LLMActivationArgs(
+            args=LLMAgentActivationArgs(
                 messages=[
                     {
                         "role": "user",

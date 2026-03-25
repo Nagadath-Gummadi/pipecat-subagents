@@ -47,7 +47,7 @@ from pipecat_flows import FlowManager, FlowResult, NodeConfig
 from pipecat_subagents.agents import (
     BaseAgent,
     FlowsAgent,
-    LLMActivationArgs,
+    LLMAgentActivationArgs,
     LLMAgent,
     tool,
 )
@@ -205,7 +205,7 @@ class ReservationAgent(FlowsAgent):
         logger.info(f"Agent '{self.name}': transferring to '{agent}' ({reason})")
         await self.handoff_to(
             agent,
-            args=LLMActivationArgs(
+            args=LLMAgentActivationArgs(
                 messages=[{"role": "user", "content": reason}],
             ),
         )
@@ -241,7 +241,7 @@ class RouterAgent(LLMAgent):
         logger.info(f"Agent '{self.name}': transferring to '{agent}' ({reason})")
         await self.handoff_to(
             agent,
-            args=LLMActivationArgs(
+            args=LLMAgentActivationArgs(
                 messages=[{"role": "user", "content": reason}],
             ),
             result_callback=params.result_callback,
@@ -276,7 +276,7 @@ class RestaurantAgent(BaseAgent):
 
         await self.activate_agent(
             "router",
-            args=LLMActivationArgs(
+            args=LLMAgentActivationArgs(
                 messages=[
                     {
                         "role": "user",

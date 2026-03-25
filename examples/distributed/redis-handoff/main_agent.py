@@ -37,7 +37,7 @@ from pipecat.transports.base_transport import BaseTransport, TransportParams
 from pipecat.transports.daily.transport import DailyParams
 from redis.asyncio import Redis
 
-from pipecat_subagents.agents import BaseAgent, LLMActivationArgs
+from pipecat_subagents.agents import BaseAgent, LLMAgentActivationArgs
 from pipecat_subagents.bus import AgentBus, BusBridgeProcessor
 from pipecat_subagents.bus.network.redis import RedisBus
 from pipecat_subagents.runner import AgentRunner
@@ -83,7 +83,7 @@ class AcmeAgent(BaseAgent):
             return
         await self.activate_agent(
             "greeter",
-            args=LLMActivationArgs(
+            args=LLMAgentActivationArgs(
                 messages=[
                     {
                         "role": "user",
