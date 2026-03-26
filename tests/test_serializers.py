@@ -100,6 +100,7 @@ class TestJSONMessageSerializer(unittest.TestCase):
             source="worker",
             target="parent",
             task_id="t-123",
+            status="completed",
             response={"result": 42},
         )
         data = self.serializer.serialize(msg)

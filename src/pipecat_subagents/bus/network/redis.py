@@ -7,7 +7,6 @@
 """Redis pub/sub agent bus for distributed agents."""
 
 import asyncio
-from dataclasses import dataclass, field
 from typing import Optional
 
 from loguru import logger
@@ -22,32 +21,16 @@ except ModuleNotFoundError as e:
 
 from pipecat_subagents.bus.bus import AgentBus
 from pipecat_subagents.bus.messages import BusLocalMessage, BusMessage
-from pipecat_subagents.bus.queue import BusMessageQueue
 from pipecat_subagents.bus.serializers import JSONMessageSerializer
 from pipecat_subagents.bus.serializers.base import MessageSerializer
-
-
-@dataclass
-class RedisConnection:
-    """Per-subscriber connection state for `RedisBus`.
-
-    Parameters:
-        pubsub: The Redis pub/sub subscription handle.
-        queue: Queue fed by both the Redis reader task and local delivery.
-        task: Background task reading from Redis pub/sub into the queue.
-    """
-
-    pubsub: PubSub
-    queue: BusMessageQueue = field(repr=False)
-    task: asyncio.Task = field(repr=False)
 
 
 class RedisBus(AgentBus):
     """Distributed agent bus backed by Redis pub/sub.
 
     Publishes serialized messages to a Redis channel for cross-process
-    communication. `BusLocalMessage` messages bypass Redis and are delivered
-    directly to local subscribers since they carry in-memory references.
+    communication. ``BusLocalMessage`` messages bypass Redis and are
+    delivered directly to local subscribers.
 
     Requires the ``redis[hiredis]`` package (``redis.asyncio``).
 
@@ -80,44 +63,26 @@ class RedisBus(AgentBus):
         self._redis = redis
         self._serializer = serializer or JSONMessageSerializer()
         self._channel = channel
-        self._connections: list[RedisConnection] = []
+        self._pubsub: Optional[PubSub] = None
+        self._reader_task: Optional[asyncio.Task] = None
 
-    async def cleanup(self):
-        """Cancel all reader tasks and close connections."""
-        for conn in list(self._connections):
-            await self.disconnect(conn)
-        await super().cleanup()
+    async def start(self):
+        """Subscribe to Redis channel and start the reader task."""
+        await super().start()
+        self._pubsub = self._redis.pubsub()
+        await self._pubsub.subscribe(self._channel)
+        self._reader_task = self.create_asyncio_task(self._reader_loop(), f"{self}::redis_reader")
 
-    async def connect(self) -> RedisConnection:
-        """Create a Redis pub/sub subscription for a subscriber.
-
-        Returns:
-            A `RedisConnection` for receiving messages.
-        """
-        pubsub = self._redis.pubsub()
-        await pubsub.subscribe(self._channel)
-
-        queue = BusMessageQueue()
-        task = self.create_asyncio_task(self._reader_task(pubsub, queue), f"{self}::redis_reader")
-
-        conn = RedisConnection(pubsub=pubsub, queue=queue, task=task)
-        self._connections.append(conn)
-
-        # Schedule task right away.
-        await asyncio.sleep(0)
-
-        return conn
-
-    async def disconnect(self, client: RedisConnection) -> None:
-        """Unsubscribe and clean up a Redis pub/sub connection.
-
-        Args:
-            client: The `RedisConnection` returned by `connect()`.
-        """
-        await self.cancel_asyncio_task(client.task)
-        await client.pubsub.unsubscribe(self._channel)
-        await client.pubsub.close()
-        self._connections.remove(client)
+    async def stop(self):
+        """Stop the reader task and unsubscribe from Redis."""
+        await super().stop()
+        if self._reader_task:
+            await self.cancel_asyncio_task(self._reader_task)
+            self._reader_task = None
+        if self._pubsub:
+            await self._pubsub.unsubscribe(self._channel)
+            await self._pubsub.close()
+            self._pubsub = None
 
     async def send(self, message: BusMessage) -> None:
         """Send a message to all subscribers.
@@ -130,33 +95,20 @@ class RedisBus(AgentBus):
         """
         if isinstance(message, BusLocalMessage):
             logger.trace(f"{self}: sending local {message}")
-            for conn in self._connections:
-                conn.queue.put_nowait(message)
+            self._on_message_received(message)
             return
         logger.trace(f"{self}: publishing {message} to {self._channel}")
         data = self._serializer.serialize(message)
         await self._redis.publish(self._channel, data)
 
-    async def receive(self, client: RedisConnection) -> BusMessage:
-        """Wait for and return the next message from the subscriber's queue.
-
-        Args:
-            client: The `RedisConnection` returned by `connect()`.
-
-        Returns:
-            The next `BusMessage` available on this connection.
-        """
-        message = await client.queue.get()
-        logger.trace(f"{self}: received {message}")
-        return message
-
-    async def _reader_task(self, pubsub: PubSub, queue: asyncio.Queue[BusMessage]) -> None:
-        """Read messages from Redis pub/sub and enqueue them."""
-        async for raw_message in pubsub.listen():
+    async def _reader_loop(self) -> None:
+        """Read messages from Redis pub/sub and deliver to subscribers."""
+        async for raw_message in self._pubsub.listen():
             if raw_message["type"] != "message":
                 continue
             try:
                 message = self._serializer.deserialize(raw_message["data"])
-                queue.put_nowait(message)
+                if message:
+                    self._on_message_received(message)
             except Exception:
                 logger.exception(f"{self}: failed to deserialize message")
