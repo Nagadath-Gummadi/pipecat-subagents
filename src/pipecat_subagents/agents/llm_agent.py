@@ -242,6 +242,21 @@ class LLMAgent(BaseAgent):
         await self._close_function_call(result_callback)
         await super().handoff_to(agent_name, args=args)
 
+    async def process_deferred_tool_frames(self, frames: list[Frame]) -> list[Frame]:
+        """Process deferred frames before they are flushed.
+
+        Called after all in-flight tools complete, before the deferred
+        frames are queued into the pipeline. Override to inspect, modify,
+        reorder, or filter the frames.
+
+        Args:
+            frames: The deferred frames collected during tool execution.
+
+        Returns:
+            The frames to queue. Return the list as-is for default behavior.
+        """
+        return frames
+
     def _track_tool_call(self, method: Callable) -> Callable:
         @functools.wraps(method)
         async def wrapper(params, *args, **kwargs):
@@ -256,8 +271,10 @@ class LLMAgent(BaseAgent):
         return wrapper
 
     async def _flush_deferred_frames(self) -> None:
-        while self._deferred_frames:
-            await self.queue_frame(self._deferred_frames.popleft())
+        frames = list(self._deferred_frames)
+        self._deferred_frames.clear()
+        for frame in await self.process_deferred_tool_frames(frames):
+            await self.queue_frame(frame)
 
     async def _close_function_call(
         self, result_callback: Optional[FunctionCallResultCallback]
