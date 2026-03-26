@@ -22,7 +22,7 @@ except ModuleNotFoundError as e:
 
 from pipecat_subagents.agents.base_agent import BaseAgent
 from pipecat_subagents.bus import AgentBus, BusAgentRegistryMessage, BusMessage
-from pipecat_subagents.bus.messages import BusLocalMixin
+from pipecat_subagents.bus.messages import BusLocalMessage
 from pipecat_subagents.bus.serializers import JSONMessageSerializer
 from pipecat_subagents.bus.serializers.base import MessageSerializer
 from pipecat_subagents.types import AgentReadyData
@@ -163,7 +163,7 @@ class WebSocketProxyServerAgent(BaseAgent):
         if not self._ws:
             return
 
-        if isinstance(message, BusLocalMixin):
+        if isinstance(message, BusLocalMessage):
             return
 
         if message.source != self._agent_name:

@@ -21,7 +21,8 @@ except ModuleNotFoundError as e:
     raise Exception(f"Missing module: {e}")
 
 from pipecat_subagents.bus.bus import AgentBus
-from pipecat_subagents.bus.messages import BusLocalMixin, BusMessage
+from pipecat_subagents.bus.messages import BusLocalMessage, BusMessage
+from pipecat_subagents.bus.queue import BusMessageQueue
 from pipecat_subagents.bus.serializers import JSONMessageSerializer
 from pipecat_subagents.bus.serializers.base import MessageSerializer
 
@@ -37,7 +38,7 @@ class RedisConnection:
     """
 
     pubsub: PubSub
-    queue: asyncio.Queue[BusMessage] = field(repr=False)
+    queue: BusMessageQueue = field(repr=False)
     task: asyncio.Task = field(repr=False)
 
 
@@ -45,7 +46,7 @@ class RedisBus(AgentBus):
     """Distributed agent bus backed by Redis pub/sub.
 
     Publishes serialized messages to a Redis channel for cross-process
-    communication. `BusLocalMixin` messages bypass Redis and are delivered
+    communication. `BusLocalMessage` messages bypass Redis and are delivered
     directly to local subscribers since they carry in-memory references.
 
     Requires the ``redis[hiredis]`` package (``redis.asyncio``).
@@ -96,7 +97,7 @@ class RedisBus(AgentBus):
         pubsub = self._redis.pubsub()
         await pubsub.subscribe(self._channel)
 
-        queue: asyncio.Queue[BusMessage] = asyncio.Queue()
+        queue = BusMessageQueue()
         task = self.create_asyncio_task(self._reader_task(pubsub, queue), f"{self}::redis_reader")
 
         conn = RedisConnection(pubsub=pubsub, queue=queue, task=task)
@@ -121,13 +122,13 @@ class RedisBus(AgentBus):
     async def send(self, message: BusMessage) -> None:
         """Send a message to all subscribers.
 
-        ``BusLocalMixin`` messages are delivered directly to local
+        ``BusLocalMessage`` messages are delivered directly to local
         subscriber queues. All other messages are published to Redis.
 
         Args:
             message: The bus message to send.
         """
-        if isinstance(message, BusLocalMixin):
+        if isinstance(message, BusLocalMessage):
             logger.trace(f"{self}: sending local {message}")
             for conn in self._connections:
                 conn.queue.put_nowait(message)

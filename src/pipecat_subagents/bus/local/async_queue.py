@@ -6,16 +6,15 @@
 
 """In-process agent bus backed by asyncio queues."""
 
-import asyncio
-
 from loguru import logger
 
 from pipecat_subagents.bus.bus import AgentBus
 from pipecat_subagents.bus.messages import BusMessage
+from pipecat_subagents.bus.queue import BusMessageQueue
 
 
 class AsyncQueueBus(AgentBus):
-    """In-process bus that delivers messages via per-subscriber `asyncio.Queue` instances."""
+    """In-process bus that delivers messages via per-subscriber priority queues."""
 
     def __init__(self, **kwargs):
         """Initialize the AsyncQueueBus.
@@ -24,19 +23,19 @@ class AsyncQueueBus(AgentBus):
             **kwargs: Additional arguments passed to `AgentBus`.
         """
         super().__init__(**kwargs)
-        self._queues: list[asyncio.Queue[BusMessage]] = []
+        self._queues: list[BusMessageQueue] = []
 
-    async def connect(self) -> asyncio.Queue[BusMessage]:
-        """Create a per-subscriber queue.
+    async def connect(self) -> BusMessageQueue:
+        """Create a per-subscriber priority queue.
 
         Returns:
-            An `asyncio.Queue` that `receive()` reads from.
+            A `BusMessageQueue` that `receive()` reads from.
         """
-        queue: asyncio.Queue[BusMessage] = asyncio.Queue()
+        queue = BusMessageQueue()
         self._queues.append(queue)
         return queue
 
-    async def disconnect(self, client: asyncio.Queue[BusMessage]) -> None:
+    async def disconnect(self, client: BusMessageQueue) -> None:
         """Remove a subscriber's queue from the fan-out list.
 
         Args:
@@ -57,7 +56,7 @@ class AsyncQueueBus(AgentBus):
         for queue in self._queues:
             queue.put_nowait(message)
 
-    async def receive(self, client: asyncio.Queue[BusMessage]) -> BusMessage:
+    async def receive(self, client: BusMessageQueue) -> BusMessage:
         """Wait for and return the next message from a subscriber queue.
 
         Args:
