@@ -48,7 +48,7 @@ class AgentBus(BaseObject):
 
     Subclasses implement ``send()`` for the specific transport. For
     network buses, override ``start()``/``stop()`` to manage connections.
-    Call ``_on_message_received()`` to deliver incoming messages to all
+    Call ``on_message_received()`` to deliver incoming messages to all
     local subscribers.
     """
 
@@ -151,7 +151,7 @@ class AgentBus(BaseObject):
     async def send(self, message: BusMessage) -> None:
         """Send a message through the bus.
 
-        Implementations should call ``_on_message_received()`` to deliver
+        Implementations should call ``on_message_received()`` to deliver
         the message to local subscribers. Network buses also publish
         the message to the remote transport.
 
@@ -160,7 +160,7 @@ class AgentBus(BaseObject):
         """
         pass
 
-    def _on_message_received(self, message: BusMessage) -> None:
+    def on_message_received(self, message: BusMessage) -> None:
         """Deliver a message to all local subscribers via their priority queues.
 
         Called by bus implementations when a message arrives (either from

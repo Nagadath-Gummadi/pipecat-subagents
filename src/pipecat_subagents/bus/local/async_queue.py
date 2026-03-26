@@ -22,4 +22,4 @@ class AsyncQueueBus(AgentBus):
             message: The bus message to send.
         """
         logger.trace(f"{self}: sending {message}")
-        self._on_message_received(message)
+        self.on_message_received(message)

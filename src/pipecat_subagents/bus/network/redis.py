@@ -72,6 +72,7 @@ class RedisBus(AgentBus):
         self._pubsub = self._redis.pubsub()
         await self._pubsub.subscribe(self._channel)
         self._reader_task = self.create_asyncio_task(self._reader_loop(), f"{self}::redis_reader")
+        await asyncio.sleep(0)
 
     async def stop(self):
         """Stop the reader task and unsubscribe from Redis."""
@@ -95,7 +96,7 @@ class RedisBus(AgentBus):
         """
         if isinstance(message, BusLocalMessage):
             logger.trace(f"{self}: sending local {message}")
-            self._on_message_received(message)
+            self.on_message_received(message)
             return
         logger.trace(f"{self}: publishing {message} to {self._channel}")
         data = self._serializer.serialize(message)
@@ -109,6 +110,6 @@ class RedisBus(AgentBus):
             try:
                 message = self._serializer.deserialize(raw_message["data"])
                 if message:
-                    self._on_message_received(message)
+                    self.on_message_received(message)
             except Exception:
                 logger.exception(f"{self}: failed to deserialize message")
