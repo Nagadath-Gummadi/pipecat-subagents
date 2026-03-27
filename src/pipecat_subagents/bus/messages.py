@@ -23,6 +23,11 @@ if TYPE_CHECKING:
     from pipecat_subagents.agents.task_group import TaskStatus
 
 
+# ---------------------------------------------------------------------------
+# Base types and mixins
+# ---------------------------------------------------------------------------
+
+
 class BusMessage:
     """Mixin carrying source/target metadata for bus messages.
 
@@ -41,11 +46,6 @@ class BusLocalMessage:
     """Mixin: message stays on the local bus, never forwarded to remote buses."""
 
     pass
-
-
-# ---------------------------------------------------------------------------
-# Base message types
-# ---------------------------------------------------------------------------
 
 
 @dataclass(kw_only=True)
@@ -75,7 +75,7 @@ class BusSystemMessage(BusMessage, SystemFrame):
 
 
 # ---------------------------------------------------------------------------
-# Data messages (normal priority)
+# Frame transport
 # ---------------------------------------------------------------------------
 
 
@@ -92,6 +92,11 @@ class BusFrameMessage(BusDataMessage):
     frame: Frame
     direction: FrameDirection
     bridge: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Agent lifecycle
+# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -140,117 +145,49 @@ class BusEndAgentMessage(BusDataMessage):
 
 
 @dataclass
-class BusTaskRequestMessage(BusDataMessage):
-    """Requests a task agent to start work.
+class BusCancelMessage(BusSystemMessage):
+    """Request a hard cancel of the session.
+
+    Sent by an agent to the runner, which responds by sending
+    `BusCancelAgentMessage` to each agent.
 
     Parameters:
-        task_id: Unique identifier for this task.
-        payload: Optional structured data describing the work.
+        reason: Optional human-readable reason for the cancellation.
     """
 
-    task_id: str
-    payload: Optional[dict] = None
+    reason: Optional[str] = None
 
 
 @dataclass
-class BusTaskResponseMessage(BusDataMessage):
-    """Response from a task agent when it completes.
+class BusCancelAgentMessage(BusSystemMessage):
+    """Tells a targeted agent to cancel its pipeline task.
+
+    Sent by the runner to individual agents during cancellation.
 
     Parameters:
-        task_id: The task identifier.
-        response: Optional result data.
-        status: Completion status.
+        reason: Optional human-readable reason for the cancellation.
     """
 
-    task_id: str
-    status: "TaskStatus"
-    response: Optional[dict] = None
-
-
-@dataclass
-class BusTaskResponseUrgentMessage(BusSystemMessage):
-    """High-priority response from a task agent.
-
-    Same semantics as ``BusTaskResponseMessage`` but delivered with
-    system priority, preempting queued data messages.
-
-    Parameters:
-        task_id: The task identifier.
-        response: Optional result data.
-        status: Completion status.
-    """
-
-    task_id: str
-    status: "TaskStatus"
-    response: Optional[dict] = None
-
-
-@dataclass
-class BusTaskUpdateMessage(BusDataMessage):
-    """Progress update from a task agent.
-
-    Parameters:
-        task_id: The task identifier.
-        update: Optional progress data.
-    """
-
-    task_id: str
-    update: Optional[dict] = None
-
-
-@dataclass
-class BusTaskUpdateRequestMessage(BusDataMessage):
-    """Request a progress update from a task agent.
-
-    Parameters:
-        task_id: The task identifier.
-    """
-
-    task_id: str
-
-
-@dataclass
-class BusTaskStreamStartMessage(BusDataMessage):
-    """Signals the start of a streaming task response.
-
-    Parameters:
-        task_id: The task identifier.
-        data: Optional metadata (e.g. content type).
-    """
-
-    task_id: str
-    data: Optional[dict] = None
-
-
-@dataclass
-class BusTaskStreamDataMessage(BusDataMessage):
-    """A chunk of streaming task data.
-
-    Parameters:
-        task_id: The task identifier.
-        data: The chunk payload.
-    """
-
-    task_id: str
-    data: Optional[dict] = None
-
-
-@dataclass
-class BusTaskStreamEndMessage(BusDataMessage):
-    """Signals the end of a streaming task response.
-
-    Parameters:
-        task_id: The task identifier.
-        data: Optional final metadata.
-    """
-
-    task_id: str
-    data: Optional[dict] = None
+    reason: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
-# System messages (high priority)
+# Agent registry and errors
 # ---------------------------------------------------------------------------
+
+
+@dataclass
+class BusAddAgentMessage(BusSystemMessage, BusLocalMessage):
+    """Request to add an agent to the local runner.
+
+    Local-only: carries an in-memory agent reference that cannot be
+    serialized over the network.
+
+    Parameters:
+        agent: The agent instance to add.
+    """
+
+    agent: BaseAgent
 
 
 @dataclass
@@ -297,45 +234,95 @@ class BusAgentLocalErrorMessage(BusSystemMessage, BusLocalMessage):
     error: str
 
 
-@dataclass
-class BusCancelMessage(BusSystemMessage):
-    """Request a hard cancel of the session.
-
-    Sent by an agent to the runner, which responds by sending
-    `BusCancelAgentMessage` to each agent.
-
-    Parameters:
-        reason: Optional human-readable reason for the cancellation.
-    """
-
-    reason: Optional[str] = None
+# ---------------------------------------------------------------------------
+# Tasks
+# ---------------------------------------------------------------------------
 
 
 @dataclass
-class BusCancelAgentMessage(BusSystemMessage):
-    """Tells a targeted agent to cancel its pipeline task.
-
-    Sent by the runner to individual agents during cancellation.
+class BusTaskRequestMessage(BusDataMessage):
+    """Requests a task agent to start work.
 
     Parameters:
-        reason: Optional human-readable reason for the cancellation.
+        task_id: Unique identifier for this task.
+        payload: Optional structured data describing the work.
     """
 
-    reason: Optional[str] = None
+    task_id: str
+    payload: Optional[dict] = None
 
 
 @dataclass
-class BusAddAgentMessage(BusSystemMessage, BusLocalMessage):
-    """Request to add an agent to the local runner.
-
-    Local-only: carries an in-memory agent reference that cannot be
-    serialized over the network.
+class BusTaskResponseMessage(BusDataMessage):
+    """Response from a task agent when it completes.
 
     Parameters:
-        agent: The agent instance to add.
+        task_id: The task identifier.
+        status: Completion status.
+        response: Optional result data.
     """
 
-    agent: BaseAgent
+    task_id: str
+    status: "TaskStatus"
+    response: Optional[dict] = None
+
+
+@dataclass
+class BusTaskResponseUrgentMessage(BusSystemMessage):
+    """High-priority response from a task agent.
+
+    Same semantics as ``BusTaskResponseMessage`` but delivered with
+    system priority, preempting queued data messages.
+
+    Parameters:
+        task_id: The task identifier.
+        status: Completion status.
+        response: Optional result data.
+    """
+
+    task_id: str
+    status: "TaskStatus"
+    response: Optional[dict] = None
+
+
+@dataclass
+class BusTaskUpdateMessage(BusDataMessage):
+    """Progress update from a task agent.
+
+    Parameters:
+        task_id: The task identifier.
+        update: Optional progress data.
+    """
+
+    task_id: str
+    update: Optional[dict] = None
+
+
+@dataclass
+class BusTaskUpdateUrgentMessage(BusSystemMessage):
+    """High-priority progress update from a task agent.
+
+    Same semantics as ``BusTaskUpdateMessage`` but delivered with
+    system priority, preempting queued data messages.
+
+    Parameters:
+        task_id: The task identifier.
+        update: Optional progress data.
+    """
+
+    task_id: str
+    update: Optional[dict] = None
+
+
+@dataclass
+class BusTaskUpdateRequestMessage(BusDataMessage):
+    """Request a progress update from a task agent.
+
+    Parameters:
+        task_id: The task identifier.
+    """
+
+    task_id: str
 
 
 @dataclass
@@ -349,3 +336,47 @@ class BusTaskCancelMessage(BusSystemMessage):
 
     task_id: str
     reason: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Task streaming
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class BusTaskStreamStartMessage(BusDataMessage):
+    """Signals the start of a streaming task response.
+
+    Parameters:
+        task_id: The task identifier.
+        data: Optional metadata (e.g. content type).
+    """
+
+    task_id: str
+    data: Optional[dict] = None
+
+
+@dataclass
+class BusTaskStreamDataMessage(BusDataMessage):
+    """A chunk of streaming task data.
+
+    Parameters:
+        task_id: The task identifier.
+        data: The chunk payload.
+    """
+
+    task_id: str
+    data: Optional[dict] = None
+
+
+@dataclass
+class BusTaskStreamEndMessage(BusDataMessage):
+    """Signals the end of a streaming task response.
+
+    Parameters:
+        task_id: The task identifier.
+        data: Optional final metadata.
+    """
+
+    task_id: str
+    data: Optional[dict] = None

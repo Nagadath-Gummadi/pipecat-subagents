@@ -61,6 +61,7 @@ from pipecat_subagents.bus import (
     BusTaskStreamEndMessage,
     BusTaskStreamStartMessage,
     BusTaskUpdateMessage,
+    BusTaskUpdateUrgentMessage,
     BusTaskUpdateRequestMessage,
 )
 from pipecat_subagents.bus.messages import BusFrameMessage
@@ -549,7 +550,7 @@ class BaseAgent(BaseObject, BusSubscriber):
             await self._handle_task_request(message)
         elif isinstance(message, (BusTaskResponseMessage, BusTaskResponseUrgentMessage)):
             await self._handle_task_response(message)
-        elif isinstance(message, BusTaskUpdateMessage):
+        elif isinstance(message, (BusTaskUpdateMessage, BusTaskUpdateUrgentMessage)):
             await self._handle_task_update(message)
         elif isinstance(message, BusTaskUpdateRequestMessage):
             await self._handle_task_update_request(message)
@@ -963,19 +964,24 @@ class BaseAgent(BaseObject, BusSubscriber):
         self._task_id = None
         self._task_requester = None
 
-    async def send_task_update(self, update: Optional[dict] = None) -> None:
+    async def send_task_update(
+        self, update: Optional[dict] = None, *, urgent: bool = False
+    ) -> None:
         """Send a progress update to the requester.
 
         Args:
             update: Optional progress data.
+            urgent: When True, the update is delivered with system
+                priority, preempting queued data messages.
 
         Raises:
             RuntimeError: If this agent has no active task.
         """
         if not self._task_id or not self._task_requester:
             raise RuntimeError(f"Agent '{self}': no active task to update")
+        msg_class = BusTaskUpdateUrgentMessage if urgent else BusTaskUpdateMessage
         await self.send_message(
-            BusTaskUpdateMessage(
+            msg_class(
                 source=self.name,
                 target=self._task_requester,
                 task_id=self._task_id,
@@ -1281,7 +1287,9 @@ class BaseAgent(BaseObject, BusSubscriber):
 
         await self._track_task_group_response(message.task_id, message.source, message.response)
 
-    async def _handle_task_update(self, message: BusTaskUpdateMessage) -> None:
+    async def _handle_task_update(
+        self, message: Union[BusTaskUpdateMessage, BusTaskUpdateUrgentMessage]
+    ) -> None:
         """Handle a task progress update."""
         await self.on_task_update(message)
         await self._call_event_handler("on_task_update", message)

@@ -47,6 +47,7 @@ from pipecat_subagents.bus.messages import (
     BusTaskStreamStartMessage,
     BusTaskUpdateMessage,
     BusTaskUpdateRequestMessage,
+    BusTaskUpdateUrgentMessage,
 )
 from pipecat_subagents.bus.subscriber import BusSubscriber
 
@@ -79,4 +80,5 @@ __all__ = [
     "BusTaskStreamStartMessage",
     "BusTaskUpdateMessage",
     "BusTaskUpdateRequestMessage",
+    "BusTaskUpdateUrgentMessage",
 ]
