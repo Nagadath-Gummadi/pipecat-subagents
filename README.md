@@ -78,6 +78,10 @@ Agents communicate through a shared bus using pub/sub messaging. Place a `BusBri
 | `AsyncQueueBus` | In-process bus backed by `asyncio.Queue`s. No serialization overhead. This is the default bus created by `AgentRunner`. |
 | `RedisBus`      | Distributed bus backed by Redis pub/sub for cross-process communication.                                                |
 
+#### Messages
+
+Bus messages are Pipecat frames, which means they carry the same priority semantics as pipeline frames. Messages extend either `BusDataMessage` (normal priority, based on `DataFrame`) or `BusSystemMessage` (high priority, based on `SystemFrame`). Each subscriber has its own priority queue, so system messages like cancellations are delivered before queued data messages.
+
 #### Serialization
 
 Network buses need to serialize messages to bytes. Types that aren't JSON-native (e.g. `LLMContext`, `ToolsSchema`) require a `TypeAdapter` to convert them to/from JSON. Common adapters are registered by default.
