@@ -32,7 +32,11 @@ jobs:
         run: uv python install 3.12
 
       - name: Install dependencies
-        run: uv sync --group dev --extra redis
+        run: |
+          uv sync --group dev \
+            --extra flows \
+            --extra redis \
+            --extra websocket
 
       - name: Test with pytest
         run: uv run pytest
