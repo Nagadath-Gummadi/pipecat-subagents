@@ -14,15 +14,24 @@ actions).
 from abc import abstractmethod
 from typing import Any, List, Optional
 
+from loguru import logger
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.task import PipelineTask
 from pipecat.services.llm_service import LLMService
-from pipecat_flows import ContextStrategyConfig, FlowManager, FlowsFunctionSchema, NodeConfig
-from pipecat_flows.types import FlowsDirectFunction
 
 from pipecat_subagents.agents.base_agent import BaseAgent
 from pipecat_subagents.agents.tool import _collect_tools
 from pipecat_subagents.bus import AgentBus
+
+try:
+    from pipecat_flows import ContextStrategyConfig, FlowManager, FlowsFunctionSchema, NodeConfig
+    from pipecat_flows.types import FlowsDirectFunction
+except ModuleNotFoundError as e:
+    logger.error(f"Exception: {e}")
+    logger.error(
+        "In order to use FlowsAgent, you need to `pip install pipecat-ai-subagents[flows]`."
+    )
+    raise Exception(f"Missing module: {e}")
 
 
 class FlowsAgent(BaseAgent):

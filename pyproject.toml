@@ -18,14 +18,17 @@ classifiers = [
     "Topic :: Communications :: Conferencing",
     "Topic :: Multimedia :: Sound/Audio",
 ]
-dependencies = [
-    "pipecat-ai-flows>=0.0.22",
-    "pipecat-ai>=0.0.106",
-]
+dependencies = [ "pipecat-ai>=0.0.107" ]
 
 [project.optional-dependencies]
+flows = ["pipecat-ai-flows>=0.0.22"]
 redis = ["redis[hiredis]>=5.0.0"]
 websocket = [ "websockets>=13.1,<16.0", "fastapi>=0.115.6,<1" ]
+examples = [
+    "claude-agent-sdk>=0.1.0",
+    "pipecat-ai-subagents[flows,redis,websocket]",
+    "pipecat-ai[webrtc,daily,silero,deepgram,cartesia,openai,runner]>=0.0.107"
+]
 
 [project.urls]
 Source = "https://github.com/pipecat-ai/pipecat-subagents"
@@ -45,7 +48,6 @@ dev = [
     "setuptools~=78.1.1",
     "setuptools_scm~=8.3.1",
     "python-dotenv>=1.0.1,<2.0.0",
-    "pipecat-ai[webrtc,daily,silero,deepgram,cartesia,openai,runner]>=0.0.105",
 ]
 
 [tool.pytest.ini_options]
