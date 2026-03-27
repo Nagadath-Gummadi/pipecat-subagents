@@ -426,7 +426,6 @@ class TestTaskGroupContext(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(tg.responses, {"worker": {"ok": True}})
 
-
     async def test_urgent_task_response_collected(self):
         """Urgent task responses are collected like normal responses."""
         parent = StubAgent("parent", bus=self.bus)

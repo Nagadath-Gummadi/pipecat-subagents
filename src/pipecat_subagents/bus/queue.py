@@ -24,27 +24,36 @@ class BusMessageQueue(asyncio.PriorityQueue):
     """
 
     def __init__(self):
+        """Initialize the BusMessageQueue."""
         super().__init__()
         self._high_counter = 0
         self._low_counter = 0
 
-    def put_nowait(self, message) -> None:
-        """Add a message to the queue with automatic priority assignment."""
-        if isinstance(message, SystemFrame):
-            self._high_counter += 1
-            super().put_nowait((HIGH_PRIORITY, self._high_counter, message))
-        else:
-            self._low_counter += 1
-            super().put_nowait((LOW_PRIORITY, self._low_counter, message))
+    def put_nowait(self, item) -> None:
+        """Add a message to the queue with automatic priority assignment.
 
-    async def put(self, message) -> None:
-        """Add a message to the queue with automatic priority assignment."""
-        if isinstance(message, SystemFrame):
+        Args:
+            item: The bus message to enqueue.
+        """
+        if isinstance(item, SystemFrame):
             self._high_counter += 1
-            await super().put((HIGH_PRIORITY, self._high_counter, message))
+            super().put_nowait((HIGH_PRIORITY, self._high_counter, item))
         else:
             self._low_counter += 1
-            await super().put((LOW_PRIORITY, self._low_counter, message))
+            super().put_nowait((LOW_PRIORITY, self._low_counter, item))
+
+    async def put(self, item) -> None:
+        """Add a message to the queue with automatic priority assignment.
+
+        Args:
+            item: The bus message to enqueue.
+        """
+        if isinstance(item, SystemFrame):
+            self._high_counter += 1
+            await super().put((HIGH_PRIORITY, self._high_counter, item))
+        else:
+            self._low_counter += 1
+            await super().put((LOW_PRIORITY, self._low_counter, item))
 
     async def get(self) -> Any:
         """Get the next message, with system messages prioritized."""

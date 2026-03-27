@@ -61,8 +61,8 @@ from pipecat_subagents.bus import (
     BusTaskStreamEndMessage,
     BusTaskStreamStartMessage,
     BusTaskUpdateMessage,
-    BusTaskUpdateUrgentMessage,
     BusTaskUpdateRequestMessage,
+    BusTaskUpdateUrgentMessage,
 )
 from pipecat_subagents.bus.messages import BusFrameMessage
 from pipecat_subagents.bus.subscriber import BusSubscriber
