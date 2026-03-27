@@ -87,6 +87,7 @@ class LLMAgent(BaseAgent):
         bus: AgentBus,
         active: bool = False,
         bridged: Optional[tuple[str, ...]] = None,
+        defer_tool_frames: bool = True,
     ):
         """Initialize the LLMAgent.
 
@@ -95,6 +96,8 @@ class LLMAgent(BaseAgent):
             bus: The `AgentBus` for inter-agent communication.
             active: Whether the agent starts active. Defaults to False.
             bridged: Bridge configuration. See ``BaseAgent`` for details.
+            defer_tool_frames: Whether to defer frames queued during
+                tool execution until all tools complete. Defaults to True.
         """
         super().__init__(
             name,
@@ -103,8 +106,17 @@ class LLMAgent(BaseAgent):
             bridged=bridged,
             exclude_frames=(PipelineFlushFrame,),
         )
+        # LLM service, created in build_pipeline via create_llm().
         self._llm: Optional[LLMService] = None
+
+        # Pipeline flush. Signaled when a PipelineFlushFrame completes
+        # its round-trip, used to ensure function call results are
+        # fully processed before proceeding.
         self._flush_done: asyncio.Event = asyncio.Event()
+
+        # Tool call deferral. When defer_tool_frames is True, frames
+        # queued during tool execution are held until all tools complete.
+        self._defer_tool_frames = defer_tool_frames
         self._tool_call_inflight: int = 0
         self._deferred_frames: deque[tuple[Frame, FrameDirection]] = deque()
 
@@ -147,7 +159,7 @@ class LLMAgent(BaseAgent):
             direction: Direction the frame should travel. Defaults to
                 ``FrameDirection.DOWNSTREAM``.
         """
-        if self._tool_call_inflight > 0:
+        if self._defer_tool_frames and self._tool_call_inflight > 0:
             self._deferred_frames.append((frame, direction))
         else:
             await super().queue_frame(frame, direction)
@@ -296,7 +308,8 @@ class LLMAgent(BaseAgent):
                 return await method(params, *args, **kwargs)
             finally:
                 self._tool_call_inflight = max(0, self._tool_call_inflight - 1)
-                await self._flush_deferred_frames()
+                if self._tool_call_inflight == 0:
+                    await self._flush_deferred_frames()
 
         return wrapper
 
