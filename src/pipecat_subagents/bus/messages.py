@@ -245,10 +245,12 @@ class BusTaskRequestMessage(BusDataMessage):
 
     Parameters:
         task_id: Unique identifier for this task.
+        task_name: Optional task name for routing to named handlers.
         payload: Optional structured data describing the work.
     """
 
     task_id: str
+    task_name: Optional[str] = None
     payload: Optional[dict] = None
 
 

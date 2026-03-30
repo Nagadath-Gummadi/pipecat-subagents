@@ -158,6 +158,7 @@ class TaskGroupContext:
         agent: BaseAgent,
         agent_names: tuple[str, ...],
         *,
+        name: Optional[str] = None,
         payload: Optional[dict] = None,
         timeout: Optional[float] = None,
         cancel_on_error: bool = True,
@@ -167,6 +168,7 @@ class TaskGroupContext:
         Args:
             agent: The parent `BaseAgent` that owns this task group.
             agent_names: Names of the agents to send the task to.
+            name: Optional task name for routing to named handlers.
             payload: Optional structured data describing the work.
             timeout: Optional timeout in seconds covering both the
                 ready-wait and task execution.
@@ -175,6 +177,7 @@ class TaskGroupContext:
         """
         self._agent = agent
         self._agent_names = agent_names
+        self._name = name
         self._payload = payload
         self._timeout = timeout
         self._cancel_on_error = cancel_on_error
@@ -208,6 +211,7 @@ class TaskGroupContext:
     async def __aenter__(self) -> TaskGroupContext:
         self._group = await self._agent.create_task_group_and_request_task(
             list(self._agent_names),
+            name=self._name,
             payload=self._payload,
             timeout=self._timeout,
             cancel_on_error=self._cancel_on_error,

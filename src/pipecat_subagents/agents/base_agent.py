@@ -33,6 +33,7 @@ from pipecat.processors.frame_processor import FrameDirection, FrameProcessor, F
 from pipecat.utils.asyncio.task_manager import TaskManager
 from pipecat.utils.base_object import BaseObject
 
+from pipecat_subagents.agents.task_decorator import _collect_task_handlers
 from pipecat_subagents.agents.task_group import (
     TaskGroup,
     TaskGroupContext,
@@ -280,9 +281,11 @@ class BaseAgent(BaseObject, BusSubscriber):
 
         # Task coordination. Worker state tracks the current task being
         # worked on. Requester state tracks task groups launched by this agent.
+        # Task handlers are collected from @task decorated methods at init.
         self._task_id: Optional[str] = None
         self._task_requester: Optional[str] = None
         self._task_groups: dict[str, TaskGroup] = {}
+        self._task_handlers = _collect_task_handlers(self)
 
         # This agent's lifecycle
         self._register_event_handler("on_ready")
@@ -824,6 +827,7 @@ class BaseAgent(BaseObject, BusSubscriber):
     async def request_task(
         self,
         *agent_names: str,
+        name: Optional[str] = None,
         payload: Optional[dict] = None,
         timeout: Optional[float] = None,
         cancel_on_error: bool = True,
@@ -832,11 +836,13 @@ class BaseAgent(BaseObject, BusSubscriber):
 
         Waits for all agents to be ready before sending requests.
         Does not wait for the task group to complete; use callbacks
-        (``on_task_response``, ``on_task_completed``) or ``task_group``
-        for that.
+        (``on_task_response``, ``on_task_completed``) or
+        ``request_task_group`` for that.
 
         Args:
             *agent_names: Names of the agents to send the task to.
+            name: Optional task name for routing to named ``@task``
+                handlers on the worker.
             payload: Optional structured data describing the work.
             timeout: Optional timeout in seconds. If set, the task is
                 automatically cancelled after this duration.
@@ -846,12 +852,15 @@ class BaseAgent(BaseObject, BusSubscriber):
         Returns:
             The generated task_id shared by all agents in the group.
         """
-        for name in agent_names:
-            if not isinstance(name, str):
-                raise TypeError(f"{self} Expected agent name as str, got {type(name).__name__}")
+        for agent_name in agent_names:
+            if not isinstance(agent_name, str):
+                raise TypeError(
+                    f"{self} Expected agent name as str, got {type(agent_name).__name__}"
+                )
 
         group = await self.create_task_group_and_request_task(
             list(agent_names),
+            name=name,
             payload=payload,
             timeout=timeout,
             cancel_on_error=cancel_on_error,
@@ -880,6 +889,7 @@ class BaseAgent(BaseObject, BusSubscriber):
     def request_task_group(
         self,
         *agent_names: str,
+        name: Optional[str] = None,
         payload: Optional[dict] = None,
         timeout: Optional[float] = None,
         cancel_on_error: bool = True,
@@ -897,6 +907,8 @@ class BaseAgent(BaseObject, BusSubscriber):
 
         Args:
             *agent_names: Names of the agents to send the task to.
+            name: Optional task name for routing to named ``@task``
+                handlers on the workers.
             payload: Optional structured data describing the work.
             timeout: Optional timeout in seconds.
             cancel_on_error: Whether to cancel the group if a worker
@@ -922,6 +934,7 @@ class BaseAgent(BaseObject, BusSubscriber):
         return TaskGroupContext(
             self,
             agent_names,
+            name=name,
             payload=payload,
             timeout=timeout,
             cancel_on_error=cancel_on_error,
@@ -1151,6 +1164,7 @@ class BaseAgent(BaseObject, BusSubscriber):
         self,
         agent_names: list[str],
         *,
+        name: Optional[str] = None,
         payload: Optional[dict] = None,
         timeout: Optional[float] = None,
         cancel_on_error: bool = True,
@@ -1164,6 +1178,7 @@ class BaseAgent(BaseObject, BusSubscriber):
 
         Args:
             agent_names: Names of the agents to send the task to.
+            name: Optional task name for routing to named handlers.
             payload: Optional structured data describing the work.
             timeout: Optional timeout in seconds. Covers both the
                 ready-wait and task execution.
@@ -1186,17 +1201,27 @@ class BaseAgent(BaseObject, BusSubscriber):
             agent_names, timeout=timeout, cancel_on_error=cancel_on_error
         )
 
-        for name in agent_names:
-            await self._send_task_request(name, group.task_id, payload)
+        for agent_name in agent_names:
+            await self._send_task_request(
+                agent_name, group.task_id, task_name=name, payload=payload
+            )
 
         return group
 
     async def _send_task_request(
-        self, agent_name: str, task_id: str, payload: Optional[dict]
+        self,
+        agent_name: str,
+        task_id: str,
+        task_name: Optional[str] = None,
+        payload: Optional[dict] = None,
     ) -> None:
         await self.send_message(
             BusTaskRequestMessage(
-                source=self.name, target=agent_name, task_id=task_id, payload=payload
+                source=self.name,
+                target=agent_name,
+                task_id=task_id,
+                task_name=task_name,
+                payload=payload,
             )
         )
 
@@ -1271,10 +1296,30 @@ class BaseAgent(BaseObject, BusSubscriber):
             await self._pipeline_task.cancel()
 
     async def _handle_task_request(self, message: BusTaskRequestMessage) -> None:
-        """Handle an incoming task request."""
+        """Handle an incoming task request.
+
+        Dispatches to @task handlers if any match, otherwise falls back
+        to on_task_request.
+        """
         self._task_id = message.task_id
         self._task_requester = message.source
-        await self.on_task_request(message)
+
+        # Look for a named handler first, then the default handler
+        handler_info = self._task_handlers.get(message.task_name)
+        if handler_info is None and message.task_name is not None:
+            handler_info = self._task_handlers.get(None)
+
+        if handler_info:
+            handler, is_parallel = handler_info
+            if is_parallel:
+                self.create_asyncio_task(
+                    handler(message), f"{self.name}::task_{message.task_name or 'default'}"
+                )
+            else:
+                await handler(message)
+        else:
+            await self.on_task_request(message)
+
         await self._call_event_handler("on_task_request", message)
 
     async def _handle_task_response(
