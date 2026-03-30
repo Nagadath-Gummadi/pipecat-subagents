@@ -199,6 +199,10 @@ A parent sends work with `request_task()` (fire-and-forget) or `request_task_gro
        on_task_completed() │                                  │
 ```
 
+#### Task handlers
+
+The `@task` decorator provides declarative routing and parallel execution for task requests. Named handlers receive only matching requests; unnamed handlers are the default fallback. Use `parallel=True` to run each request in its own asyncio task.
+
 #### Task hooks
 
 | Hook                              | When it fires                                                                     |
