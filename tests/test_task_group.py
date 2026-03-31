@@ -12,7 +12,12 @@ from pipecat.processors.filters.identity_filter import IdentityFilter
 from pipecat.utils.asyncio.task_manager import TaskManager, TaskManagerParams
 
 from pipecat_subagents.agents.base_agent import BaseAgent
-from pipecat_subagents.agents.task_context import TaskGroupError, TaskGroupEvent, TaskStatus
+from pipecat_subagents.agents.task_context import (
+    TaskError,
+    TaskGroupError,
+    TaskGroupEvent,
+    TaskStatus,
+)
 from pipecat_subagents.bus import (
     AsyncQueueBus,
     BusTaskCancelMessage,
@@ -605,7 +610,7 @@ class TestTaskContext(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(cancel_msgs[0].reason, "context exited with error")
 
     async def test_task_raises_on_worker_error(self):
-        """task() raises TaskGroupError when the worker errors."""
+        """task() raises TaskError when the worker errors."""
         parent = StubAgent("parent", bus=self.bus)
         parent.set_task_manager(self.tm)
         await setup_agent(self.bus, self.registry, parent)
@@ -615,7 +620,7 @@ class TestTaskContext(unittest.IsolatedAsyncioTestCase):
         )
         await setup_agent(self.bus, self.registry, worker)
 
-        with self.assertRaises(TaskGroupError):
+        with self.assertRaises(TaskError):
             async with parent.task("worker") as t:
                 pass
 

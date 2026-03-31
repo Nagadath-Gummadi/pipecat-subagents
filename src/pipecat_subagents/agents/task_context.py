@@ -36,6 +36,12 @@ class TaskStatus(str, Enum):
     ERROR = "error"
 
 
+class TaskError(Exception):
+    """Raised when a task is cancelled due to a worker error or timeout."""
+
+    pass
+
+
 class TaskGroupError(Exception):
     """Raised when a task group is cancelled due to a worker error or timeout."""
 
@@ -239,7 +245,7 @@ class TaskContext:
     and streaming data) from the worker while waiting for completion.
 
     On normal completion, the result is available via ``response``.
-    On worker error or timeout, raises ``TaskGroupError``. If the
+    On worker error or timeout, raises ``TaskError``. If the
     ``async with`` block raises, the task is cancelled.
 
     Example::
@@ -321,5 +327,8 @@ class TaskContext:
                 )
             return False
 
-        await self._group.wait()
+        try:
+            await self._group.wait()
+        except TaskGroupError as e:
+            raise TaskError(str(e)) from e
         return False

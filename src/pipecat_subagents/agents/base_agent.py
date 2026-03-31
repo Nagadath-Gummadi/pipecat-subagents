@@ -876,7 +876,7 @@ class BaseAgent(BaseObject, BusSubscriber):
         data) from the worker while waiting.
 
         On normal completion, the result is available via ``response``.
-        On worker error or timeout, raises ``TaskGroupError``.
+        On worker error or timeout, raises ``TaskError``.
 
         Args:
             agent_name: Name of the agent to send the task to.
