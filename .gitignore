@@ -6,12 +6,8 @@ venv
 .venv
 .idea
 .gradle
-.next
-next-env.d.ts
 local.properties
 *.log
-*.lock
-smart_turn_audio_log
 #*#
 
 # Distribution / Packaging
