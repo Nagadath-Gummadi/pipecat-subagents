@@ -145,7 +145,7 @@ class TaskGroupContext:
 
     Example::
 
-        async with self.request_task_group("w1", "w2", payload=data) as tg:
+        async with self.task_group("w1", "w2", payload=data) as tg:
             async for event in tg:
                 print(f"{event.agent_name} [{event.type}]: {event.data}")
 

@@ -8,7 +8,7 @@ Demonstrates parallel task workers using a task group context. A voice agent rec
 Debate Agent (transport + BusBridge)
   └── Moderator Agent (LLM, bridged)
         └── @tool debate(topic)
-              └── request_task_group(advocate, critic, analyst)
+              └── task_group(advocate, critic, analyst)
                      └── Debate Worker (LLM + context aggregators)
 ```
 

@@ -7,7 +7,7 @@
 """Parallel debate using task groups.
 
 A voice agent receives a topic from the user and spawns three worker
-agents in parallel using the request_task_group() context manager. Each worker
+agents in parallel using the task_group() context manager. Each worker
 runs its own LLM pipeline with a context, so it remembers previous
 topics. The voice agent collects all three perspectives and synthesizes
 a balanced response.
@@ -17,7 +17,7 @@ Architecture:
     Debate Agent (transport + BusBridge)
       └── Moderator Agent (LLM, bridged)
             └── @tool debate(topic)
-                  └── request_task_group(advocate, critic, analyst)
+                  └── task_group(advocate, critic, analyst)
                          └── Debate Worker (LLM + context aggregators)
 
 Requirements:
@@ -129,7 +129,7 @@ class DebateWorker(LLMAgent):
 
 
 class ModeratorAgent(LLMAgent):
-    """Debate moderator that spawns parallel workers via request_task_group()."""
+    """Debate moderator that spawns parallel workers via task_group()."""
 
     def __init__(self, name: str, *, bus: AgentBus):
         super().__init__(name, bus=bus, bridged=())
@@ -166,9 +166,7 @@ class ModeratorAgent(LLMAgent):
         logger.info(f"Agent '{self.name}': starting debate on '{topic}'")
 
         worker_names = [str(w) for w in self._workers]
-        async with self.request_task_group(
-            *worker_names, payload={"topic": topic}, timeout=30
-        ) as tg:
+        async with self.task_group(*worker_names, payload={"topic": topic}, timeout=30) as tg:
             pass
 
         result = "\n\n".join(f"{r['role'].upper()}: {r['text']}" for r in tg.responses.values())

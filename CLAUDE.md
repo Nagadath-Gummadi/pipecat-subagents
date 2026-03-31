@@ -68,7 +68,7 @@ BaseAgent(bridged=("voice",)) -- edge processors filtered to named bridges
 ### Task lifecycle
 
 - `request_task(*agent_names, payload=, timeout=)` sends work (fire-and-forget, callback-based)
-- `request_task_group(*agent_names, payload=, timeout=)` returns a structured context manager
+- `task_group(*agent_names, payload=, timeout=)` returns a structured context manager
 - Both wait for agents to be ready (via registry) before sending requests
 - Workers receive `on_task_request(message)`, respond via `send_task_response()` or streaming
 - `on_task_completed(result: TaskGroupResponse)` fires when all workers respond
@@ -77,7 +77,7 @@ BaseAgent(bridged=("voice",)) -- edge processors filtered to named bridges
 
 ### Task group context
 
-- `request_task_group()` returns `TaskGroupContext` (async context manager + async iterator)
+- `task_group()` returns `TaskGroupContext` (async context manager + async iterator)
 - `async for event in tg` yields `TaskGroupEvent` (UPDATE, STREAM_START, STREAM_DATA, STREAM_END)
 - `tg.responses` available after completion
 - Raises `TaskGroupError` on timeout, worker error (with cancel_on_error), or ready-wait timeout

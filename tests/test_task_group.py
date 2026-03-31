@@ -142,7 +142,7 @@ class TestTaskGroupContext(unittest.IsolatedAsyncioTestCase):
         await setup_agent(self.bus, self.registry, w1)
         await setup_agent(self.bus, self.registry, w2)
 
-        async with parent.request_task_group("w1", "w2", payload={"work": True}) as tg:
+        async with parent.task_group("w1", "w2", payload={"work": True}) as tg:
             pass
 
         self.assertEqual(tg.responses, {"w1": {"a": 1}, "w2": {"b": 2}})
@@ -157,7 +157,7 @@ class TestTaskGroupContext(unittest.IsolatedAsyncioTestCase):
         w1 = TaskWorkerAgent("w1", bus=self.bus, response={"ok": True})
         await setup_agent(self.bus, self.registry, w1)
 
-        async with parent.request_task_group("w1", payload={"data": 1}) as tg:
+        async with parent.task_group("w1", payload={"data": 1}) as tg:
             pass
 
         request_msgs = [m for m in sent if isinstance(m, BusTaskRequestMessage)]
@@ -175,7 +175,7 @@ class TestTaskGroupContext(unittest.IsolatedAsyncioTestCase):
         await setup_agent(self.bus, self.registry, worker)
 
         with self.assertRaises(TaskGroupError) as ctx:
-            async with parent.request_task_group("worker") as tg:
+            async with parent.task_group("worker") as tg:
                 asyncio.ensure_future(parent.cancel_task(tg.task_id, reason="manual cancel"))
 
         self.assertIn("manual cancel", str(ctx.exception))
@@ -191,7 +191,7 @@ class TestTaskGroupContext(unittest.IsolatedAsyncioTestCase):
         await setup_agent(self.bus, self.registry, worker)
 
         with self.assertRaises(TaskGroupError) as ctx:
-            async with parent.request_task_group("worker", timeout=0.05) as tg:
+            async with parent.task_group("worker", timeout=0.05) as tg:
                 pass
 
         self.assertIn("timeout", str(ctx.exception))
@@ -204,7 +204,7 @@ class TestTaskGroupContext(unittest.IsolatedAsyncioTestCase):
 
         # "ghost" is never registered, so the ready-wait times out
         with self.assertRaises(TaskGroupError) as ctx:
-            async with parent.request_task_group("ghost", timeout=0.05) as tg:
+            async with parent.task_group("ghost", timeout=0.05) as tg:
                 pass
 
         self.assertIn("not ready", str(ctx.exception))
@@ -221,7 +221,7 @@ class TestTaskGroupContext(unittest.IsolatedAsyncioTestCase):
         await setup_agent(self.bus, self.registry, worker)
 
         with self.assertRaises(ValueError):
-            async with parent.request_task_group("worker") as tg:
+            async with parent.task_group("worker") as tg:
                 raise ValueError("something went wrong")
 
         cancel_msgs = [m for m in sent if isinstance(m, BusTaskCancelMessage)]
@@ -240,7 +240,7 @@ class TestTaskGroupContext(unittest.IsolatedAsyncioTestCase):
         await setup_agent(self.bus, self.registry, worker)
 
         with self.assertRaises(TaskGroupError):
-            async with parent.request_task_group("worker") as tg:
+            async with parent.task_group("worker") as tg:
                 pass
 
         # Error response is tracked in partial responses
@@ -264,7 +264,7 @@ class TestTaskGroupContext(unittest.IsolatedAsyncioTestCase):
             errors.append(message)
 
         with self.assertRaises(TaskGroupError):
-            async with parent.request_task_group("worker") as tg:
+            async with parent.task_group("worker") as tg:
                 pass
 
         self.assertEqual(len(errors), 1)
@@ -288,7 +288,7 @@ class TestTaskGroupContext(unittest.IsolatedAsyncioTestCase):
         await setup_agent(self.bus, self.registry, w2)
 
         with self.assertRaises(TaskGroupError):
-            async with parent.request_task_group("w1", "w2") as tg:
+            async with parent.task_group("w1", "w2") as tg:
                 pass
 
         # w2's error response should be in partial responses
@@ -305,7 +305,7 @@ class TestTaskGroupContext(unittest.IsolatedAsyncioTestCase):
 
         captured_task_id = None
 
-        async with parent.request_task_group("worker") as tg:
+        async with parent.task_group("worker") as tg:
             captured_task_id = tg.task_id
 
         self.assertIsNotNone(captured_task_id)
@@ -325,7 +325,7 @@ class TestTaskGroupContext(unittest.IsolatedAsyncioTestCase):
         async def on_completed(agent, result):
             completed.append(result)
 
-        async with parent.request_task_group("w1") as tg:
+        async with parent.task_group("w1") as tg:
             pass
 
         self.assertEqual(len(completed), 1)
@@ -345,7 +345,7 @@ class TestTaskGroupContext(unittest.IsolatedAsyncioTestCase):
         await setup_agent(self.bus, self.registry, worker)
 
         events = []
-        async with parent.request_task_group("worker", payload={"work": True}) as tg:
+        async with parent.task_group("worker", payload={"work": True}) as tg:
             async for event in tg:
                 events.append(event)
 
@@ -370,7 +370,7 @@ class TestTaskGroupContext(unittest.IsolatedAsyncioTestCase):
         await setup_agent(self.bus, self.registry, worker)
 
         events = []
-        async with parent.request_task_group("worker") as tg:
+        async with parent.task_group("worker") as tg:
             async for event in tg:
                 events.append(event)
 
@@ -402,7 +402,7 @@ class TestTaskGroupContext(unittest.IsolatedAsyncioTestCase):
         await setup_agent(self.bus, self.registry, w2)
 
         events = []
-        async with parent.request_task_group("w1", "w2") as tg:
+        async with parent.task_group("w1", "w2") as tg:
             async for event in tg:
                 events.append(event)
 
@@ -421,7 +421,7 @@ class TestTaskGroupContext(unittest.IsolatedAsyncioTestCase):
         )
         await setup_agent(self.bus, self.registry, worker)
 
-        async with parent.request_task_group("worker") as tg:
+        async with parent.task_group("worker") as tg:
             pass
 
         self.assertEqual(tg.responses, {"worker": {"ok": True}})
@@ -434,7 +434,7 @@ class TestTaskGroupContext(unittest.IsolatedAsyncioTestCase):
         worker = UrgentTaskWorkerAgent("worker", bus=self.bus, response={"urgent": True})
         await setup_agent(self.bus, self.registry, worker)
 
-        async with parent.request_task_group("worker") as tg:
+        async with parent.task_group("worker") as tg:
             pass
 
         self.assertEqual(tg.responses, {"worker": {"urgent": True}})
@@ -457,7 +457,7 @@ class TestTaskGroupContext(unittest.IsolatedAsyncioTestCase):
             errors.append(message)
 
         with self.assertRaises(TaskGroupError):
-            async with parent.request_task_group("worker") as tg:
+            async with parent.task_group("worker") as tg:
                 pass
 
         self.assertEqual(len(errors), 1)

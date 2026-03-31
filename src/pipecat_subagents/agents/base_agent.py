@@ -837,7 +837,7 @@ class BaseAgent(BaseObject, BusSubscriber):
         Waits for all agents to be ready before sending requests.
         Does not wait for the task group to complete; use callbacks
         (``on_task_response``, ``on_task_completed``) or
-        ``request_task_group`` for that.
+        ``task_group`` for that.
 
         Args:
             *agent_names: Names of the agents to send the task to.
@@ -886,7 +886,50 @@ class BaseAgent(BaseObject, BusSubscriber):
                 )
             group.fail(reason)
 
-    def request_task_group(
+    async def request_task_group(
+        self,
+        *agent_names: str,
+        name: Optional[str] = None,
+        payload: Optional[dict] = None,
+        timeout: Optional[float] = None,
+        cancel_on_error: bool = True,
+    ) -> str:
+        """Send a task request to multiple agents (fire-and-forget).
+
+        Waits for all agents to be ready before sending requests.
+        Does not wait for the task group to complete; use callbacks
+        (``on_task_response``, ``on_task_completed``) or
+        ``task_group()`` for that.
+
+        Args:
+            *agent_names: Names of the agents to send the task to.
+            name: Optional task name for routing to named ``@task``
+                handlers on the workers.
+            payload: Optional structured data describing the work.
+            timeout: Optional timeout in seconds. If set, the task is
+                automatically cancelled after this duration.
+            cancel_on_error: Whether to cancel the entire group if a
+                worker responds with an error status. Defaults to True.
+
+        Returns:
+            The generated task_id shared by all agents in the group.
+        """
+        for agent_name in agent_names:
+            if not isinstance(agent_name, str):
+                raise TypeError(
+                    f"{self} Expected agent name as str, got {type(agent_name).__name__}"
+                )
+
+        group = await self.create_task_group_and_request_task(
+            list(agent_names),
+            name=name,
+            payload=payload,
+            timeout=timeout,
+            cancel_on_error=cancel_on_error,
+        )
+        return group.task_id
+
+    def task_group(
         self,
         *agent_names: str,
         name: Optional[str] = None,
@@ -894,7 +937,7 @@ class BaseAgent(BaseObject, BusSubscriber):
         timeout: Optional[float] = None,
         cancel_on_error: bool = True,
     ) -> TaskGroupContext:
-        """Create a structured task group context manager.
+        """Create a task group context manager.
 
         Waits for agents to be ready, sends task requests, and waits
         for all responses on exit. Supports ``async for`` inside the
@@ -919,7 +962,7 @@ class BaseAgent(BaseObject, BusSubscriber):
 
         Example::
 
-            async with self.request_task_group("w1", "w2", payload=data) as tg:
+            async with self.task_group("w1", "w2", payload=data) as tg:
                 async for event in tg:
                     if event.type == TaskGroupEvent.UPDATE:
                         print(f"{event.agent_name}: {event.data}")
@@ -927,9 +970,11 @@ class BaseAgent(BaseObject, BusSubscriber):
             for name, result in tg.responses.items():
                 print(name, result)
         """
-        for name in agent_names:
-            if not isinstance(name, str):
-                raise TypeError(f"{self} Expected agent name as str, got {type(name).__name__}")
+        for agent_name in agent_names:
+            if not isinstance(agent_name, str):
+                raise TypeError(
+                    f"{self} Expected agent name as str, got {type(agent_name).__name__}"
+                )
 
         return TaskGroupContext(
             self,
@@ -1174,7 +1219,7 @@ class BaseAgent(BaseObject, BusSubscriber):
         Waits for all agents to be registered as ready, then creates
         the group and sends a task request to each agent. Does not wait
         for the group to complete; call ``group.wait()`` or use
-        ``request_task_group()`` for that.
+        ``task_group()`` for that.
 
         Args:
             agent_names: Names of the agents to send the task to.
