@@ -34,7 +34,7 @@ BaseAgent(bridged=("voice",)) -- edge processors filtered to named bridges
 - `src/pipecat_subagents/agents/base_agent.py` -- BaseAgent, _BusEdgeProcessor, AgentActivationArgs, AgentReadyData, AgentErrorData
 - `src/pipecat_subagents/agents/llm_agent.py` -- LLMAgent, LLMAgentActivationArgs
 - `src/pipecat_subagents/agents/flows_agent.py` -- FlowsAgent
-- `src/pipecat_subagents/agents/task_group.py` -- TaskGroup, TaskGroupContext, TaskGroupEvent, TaskGroupResponse, TaskGroupError, TaskStatus
+- `src/pipecat_subagents/agents/task_context.py` -- TaskContext, TaskGroup, TaskGroupContext, TaskGroupEvent, TaskGroupResponse, TaskGroupError, TaskStatus
 - `src/pipecat_subagents/bus/bus.py` -- AgentBus abstract base
 - `src/pipecat_subagents/bus/bridge_processor.py` -- BusBridgeProcessor (supports named bridges)
 - `src/pipecat_subagents/bus/messages.py` -- All bus message types (BusFrameMessage has bridge field)

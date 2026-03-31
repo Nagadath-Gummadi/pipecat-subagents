@@ -12,7 +12,7 @@ from typing import Optional
 from loguru import logger
 
 from pipecat_subagents.agents import BaseAgent
-from pipecat_subagents.agents.task_group import TaskStatus
+from pipecat_subagents.agents.task_context import TaskStatus
 from pipecat_subagents.bus import AgentBus
 
 try:

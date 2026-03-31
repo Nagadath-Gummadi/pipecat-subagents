@@ -33,8 +33,7 @@ from pipecat.processors.frame_processor import FrameDirection, FrameProcessor, F
 from pipecat.utils.asyncio.task_manager import TaskManager
 from pipecat.utils.base_object import BaseObject
 
-from pipecat_subagents.agents.task_decorator import _collect_task_handlers
-from pipecat_subagents.agents.task_group import (
+from pipecat_subagents.agents.task_context import (
     TaskContext,
     TaskGroup,
     TaskGroupContext,
@@ -43,6 +42,7 @@ from pipecat_subagents.agents.task_group import (
     TaskGroupResponse,
     TaskStatus,
 )
+from pipecat_subagents.agents.task_decorator import _collect_task_handlers
 from pipecat_subagents.bus import (
     AgentBus,
     BusActivateAgentMessage,

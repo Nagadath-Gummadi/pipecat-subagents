@@ -20,7 +20,7 @@ from pipecat.processors.frame_processor import FrameDirection
 
 if TYPE_CHECKING:
     from pipecat_subagents.agents.base_agent import BaseAgent
-    from pipecat_subagents.agents.task_group import TaskStatus
+    from pipecat_subagents.agents.task_context import TaskStatus
 
 
 # ---------------------------------------------------------------------------

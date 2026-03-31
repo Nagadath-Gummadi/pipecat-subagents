@@ -12,7 +12,7 @@ from pipecat.processors.filters.identity_filter import IdentityFilter
 from pipecat.utils.asyncio.task_manager import TaskManager, TaskManagerParams
 
 from pipecat_subagents.agents.base_agent import BaseAgent
-from pipecat_subagents.agents.task_group import TaskGroupError, TaskGroupEvent, TaskStatus
+from pipecat_subagents.agents.task_context import TaskGroupError, TaskGroupEvent, TaskStatus
 from pipecat_subagents.bus import (
     AsyncQueueBus,
     BusTaskCancelMessage,
