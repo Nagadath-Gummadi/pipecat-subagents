@@ -497,5 +497,140 @@ class TestTaskGroupContext(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(received[0], BusTaskResponseUrgentMessage)
 
 
+class TestTaskContext(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.bus, self.tm, self.registry = await create_test_env()
+
+    async def asyncTearDown(self):
+        await self.bus.stop()
+
+    async def test_task_collects_response(self):
+        """task() context manager collects the worker's response."""
+        parent = StubAgent("parent", bus=self.bus)
+        await setup_agent(self.bus, self.registry, parent)
+
+        worker = TaskWorkerAgent("worker", bus=self.bus, response={"result": 42})
+        await setup_agent(self.bus, self.registry, worker)
+
+        async with parent.task("worker", payload={"x": 1}) as t:
+            pass
+
+        self.assertEqual(t.response, {"result": 42})
+
+    async def test_task_sends_request(self):
+        """task() sends a BusTaskRequestMessage to the agent."""
+        sent = capture_bus(self.bus)
+
+        parent = StubAgent("parent", bus=self.bus)
+        await setup_agent(self.bus, self.registry, parent)
+
+        worker = TaskWorkerAgent("worker", bus=self.bus, response={"ok": True})
+        await setup_agent(self.bus, self.registry, worker)
+
+        async with parent.task("worker") as t:
+            pass
+
+        request_msgs = [m for m in sent if isinstance(m, BusTaskRequestMessage)]
+        self.assertEqual(len(request_msgs), 1)
+        self.assertEqual(request_msgs[0].target, "worker")
+        self.assertEqual(request_msgs[0].source, "parent")
+
+    async def test_task_iterates_events(self):
+        """task() yields intermediate events via async for."""
+        parent = StubAgent("parent", bus=self.bus)
+        await setup_agent(self.bus, self.registry, parent)
+
+        worker = UpdatingWorkerAgent(
+            "worker", bus=self.bus, updates=[{"progress": 50}], response={"done": True}
+        )
+        await setup_agent(self.bus, self.registry, worker)
+
+        events = []
+        async with parent.task("worker") as t:
+            async for event in t:
+                events.append(event)
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].type, TaskGroupEvent.UPDATE)
+        self.assertEqual(events[0].agent_name, "worker")
+        self.assertEqual(t.response, {"done": True})
+
+    async def test_task_streams_data(self):
+        """task() yields stream events from a streaming worker."""
+        parent = StubAgent("parent", bus=self.bus)
+        await setup_agent(self.bus, self.registry, parent)
+
+        worker = StreamingWorkerAgent(
+            "worker",
+            bus=self.bus,
+            chunks=[{"text": "hello"}, {"text": "world"}],
+            response={"ok": True},
+        )
+        await setup_agent(self.bus, self.registry, worker)
+
+        events = []
+        async with parent.task("worker") as t:
+            async for event in t:
+                events.append(event)
+
+        types = [e.type for e in events]
+        self.assertEqual(
+            types,
+            [
+                TaskGroupEvent.STREAM_START,
+                TaskGroupEvent.STREAM_DATA,
+                TaskGroupEvent.STREAM_DATA,
+                TaskGroupEvent.STREAM_END,
+            ],
+        )
+        self.assertEqual(t.response, {"ok": True})
+
+    async def test_task_cancels_on_exception(self):
+        """task() cancels the task if the block raises."""
+        sent = capture_bus(self.bus)
+
+        parent = StubAgent("parent", bus=self.bus)
+        parent.set_task_manager(self.tm)
+        await setup_agent(self.bus, self.registry, parent)
+
+        worker = StubAgent("worker", bus=self.bus)
+        await setup_agent(self.bus, self.registry, worker)
+
+        with self.assertRaises(ValueError):
+            async with parent.task("worker") as t:
+                raise ValueError("something went wrong")
+
+        cancel_msgs = [m for m in sent if isinstance(m, BusTaskCancelMessage)]
+        self.assertEqual(len(cancel_msgs), 1)
+        self.assertEqual(cancel_msgs[0].reason, "context exited with error")
+
+    async def test_task_raises_on_worker_error(self):
+        """task() raises TaskGroupError when the worker errors."""
+        parent = StubAgent("parent", bus=self.bus)
+        parent.set_task_manager(self.tm)
+        await setup_agent(self.bus, self.registry, parent)
+
+        worker = TaskWorkerAgent(
+            "worker", bus=self.bus, response={"error": "boom"}, status=TaskStatus.ERROR
+        )
+        await setup_agent(self.bus, self.registry, worker)
+
+        with self.assertRaises(TaskGroupError):
+            async with parent.task("worker") as t:
+                pass
+
+    async def test_task_exposes_task_id(self):
+        """task() exposes the task_id inside the context."""
+        parent = StubAgent("parent", bus=self.bus)
+        await setup_agent(self.bus, self.registry, parent)
+
+        worker = TaskWorkerAgent("worker", bus=self.bus, response={"ok": True})
+        await setup_agent(self.bus, self.registry, worker)
+
+        async with parent.task("worker") as t:
+            self.assertIsInstance(t.task_id, str)
+            self.assertTrue(len(t.task_id) > 0)
+
+
 if __name__ == "__main__":
     unittest.main()

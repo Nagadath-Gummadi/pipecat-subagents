@@ -35,6 +35,7 @@ from pipecat.utils.base_object import BaseObject
 
 from pipecat_subagents.agents.task_decorator import _collect_task_handlers
 from pipecat_subagents.agents.task_group import (
+    TaskContext,
     TaskGroup,
     TaskGroupContext,
     TaskGroupError,
@@ -826,46 +827,83 @@ class BaseAgent(BaseObject, BusSubscriber):
 
     async def request_task(
         self,
-        *agent_names: str,
+        agent_name: str,
+        *,
         name: Optional[str] = None,
         payload: Optional[dict] = None,
         timeout: Optional[float] = None,
-        cancel_on_error: bool = True,
     ) -> str:
-        """Send a task request to agents.
+        """Send a task request to a single agent (fire-and-forget).
 
-        Waits for all agents to be ready before sending requests.
-        Does not wait for the task group to complete; use callbacks
+        Waits for the agent to be ready before sending the request.
+        Does not wait for the task to complete; use callbacks
         (``on_task_response``, ``on_task_completed``) or
-        ``task_group`` for that.
+        ``task()`` for that.
 
         Args:
-            *agent_names: Names of the agents to send the task to.
-            name: Optional task name for routing to named ``@task``
-                handlers on the worker.
+            agent_name: Name of the agent to send the task to.
+            name: Optional task name for routing to a named ``@task``
+                handler on the worker.
             payload: Optional structured data describing the work.
             timeout: Optional timeout in seconds. If set, the task is
                 automatically cancelled after this duration.
-            cancel_on_error: Whether to cancel the entire group if a
-                worker responds with an error status. Defaults to True.
 
         Returns:
-            The generated task_id shared by all agents in the group.
+            The generated task_id.
         """
-        for agent_name in agent_names:
-            if not isinstance(agent_name, str):
-                raise TypeError(
-                    f"{self} Expected agent name as str, got {type(agent_name).__name__}"
-                )
-
         group = await self.create_task_group_and_request_task(
-            list(agent_names),
+            [agent_name],
             name=name,
             payload=payload,
             timeout=timeout,
-            cancel_on_error=cancel_on_error,
+            cancel_on_error=True,
         )
         return group.task_id
+
+    def task(
+        self,
+        agent_name: str,
+        *,
+        name: Optional[str] = None,
+        payload: Optional[dict] = None,
+        timeout: Optional[float] = None,
+    ) -> TaskContext:
+        """Create a single-agent task context manager.
+
+        Waits for the agent to be ready, sends a task request, and
+        waits for the response on exit. Supports ``async for`` inside
+        the block to receive intermediate events (updates and streaming
+        data) from the worker while waiting.
+
+        On normal completion, the result is available via ``response``.
+        On worker error or timeout, raises ``TaskGroupError``.
+
+        Args:
+            agent_name: Name of the agent to send the task to.
+            name: Optional task name for routing to a named ``@task``
+                handler on the worker.
+            payload: Optional structured data describing the work.
+            timeout: Optional timeout in seconds.
+
+        Returns:
+            A ``TaskContext`` to use with ``async with``.
+
+        Example::
+
+            async with self.task("worker", payload=data) as t:
+                async for event in t:
+                    if event.type == TaskGroupEvent.UPDATE:
+                        print(event.data)
+
+            print(t.response)
+        """
+        return TaskContext(
+            self,
+            agent_name,
+            name=name,
+            payload=payload,
+            timeout=timeout,
+        )
 
     async def cancel_task(self, task_id: str, *, reason: Optional[str] = None) -> None:
         """Cancel a running task group.

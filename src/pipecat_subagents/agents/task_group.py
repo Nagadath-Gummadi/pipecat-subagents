@@ -229,3 +229,97 @@ class TaskGroupContext:
 
         await self._group.wait()
         return False
+
+
+class TaskContext:
+    """Async context manager and iterator for a single-agent task.
+
+    Sends a task request on enter, waits for the response on exit.
+    Supports ``async for`` to receive intermediate events (updates
+    and streaming data) from the worker while waiting for completion.
+
+    On normal completion, the result is available via ``response``.
+    On worker error or timeout, raises ``TaskGroupError``. If the
+    ``async with`` block raises, the task is cancelled.
+
+    Example::
+
+        async with self.task("worker", payload=data) as t:
+            async for event in t:
+                print(f"[{event.type}]: {event.data}")
+
+        print(t.response)
+    """
+
+    def __init__(
+        self,
+        agent: BaseAgent,
+        agent_name: str,
+        *,
+        name: Optional[str] = None,
+        payload: Optional[dict] = None,
+        timeout: Optional[float] = None,
+    ):
+        """Initialize the TaskContext.
+
+        Args:
+            agent: The parent `BaseAgent` that owns this task.
+            agent_name: Name of the agent to send the task to.
+            name: Optional task name for routing to a named handler.
+            payload: Optional structured data describing the work.
+            timeout: Optional timeout in seconds covering both the
+                ready-wait and task execution.
+        """
+        self._agent = agent
+        self._agent_name = agent_name
+        self._name = name
+        self._payload = payload
+        self._timeout = timeout
+        self._group: Optional[TaskGroup] = None
+
+    @property
+    def task_id(self) -> str:
+        """The task identifier."""
+        if not self._group:
+            raise RuntimeError("Task has not been started")
+        return self._group.task_id
+
+    @property
+    def response(self) -> dict:
+        """The worker's response payload."""
+        if not self._group:
+            raise RuntimeError("Task has not been started")
+        return self._group.responses.get(self._agent_name, {})
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self) -> TaskGroupEvent:
+        if not self._group or not self._group.event_queue:
+            raise StopAsyncIteration
+        event = await self._group.event_queue.get()
+        if event is None:
+            raise StopAsyncIteration
+        return event
+
+    async def __aenter__(self) -> TaskContext:
+        self._group = await self._agent.create_task_group_and_request_task(
+            [self._agent_name],
+            name=self._name,
+            payload=self._payload,
+            timeout=self._timeout,
+            cancel_on_error=True,
+        )
+        self._group.event_queue = asyncio.Queue()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> bool:
+        if exc_type is not None:
+            if self._group and self._group.task_id in self._agent.task_groups:
+                await self._agent.cancel_task(
+                    self._group.task_id, reason="context exited with error"
+                )
+            return False
+
+        await self._group.wait()
+        return False

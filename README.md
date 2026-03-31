@@ -169,7 +169,7 @@ For task groups, `cancel_on_error=True` (the default) automatically cancels all 
 
 Tasks let a parent agent dispatch work to one or more workers, wait for results, and optionally cancel or time out. Workers can send a single response or stream incremental results.
 
-A parent sends work with `request_task()` (fire-and-forget) or `request_task_group()` (structured context that waits for all responses). Workers receive `on_task_request()`, do work, and reply via `send_task_response()`. When multiple workers are grouped, `on_task_completed()` fires after all have responded.
+A parent sends work with `request_task()` (fire-and-forget) or `task()` (structured context manager that waits for the response). Workers receive `on_task_request()`, do work, and reply via `send_task_response()`. For dispatching to multiple workers in parallel, see [Task groups](#task-groups).
 
 ```
                         Parent                              Worker
@@ -216,7 +216,7 @@ The `@task` decorator provides declarative routing and parallel execution for ta
 
 ### Task groups
 
-A task group tracks multiple workers launched together. `request_task_group()` returns a structured context that waits for all workers to respond. It supports timeouts, automatic cancellation on worker error, and an async iterator for receiving intermediate events (updates and streaming data) while waiting for completion. Results are collected in `responses` keyed by agent name. For fire-and-forget use cases, `request_task()` sends work without waiting.
+A task group dispatches work to multiple workers in parallel. `task_group()` returns a context manager that waits for all workers to respond. It supports timeouts, automatic cancellation on worker error, and an async iterator for receiving intermediate events (updates and streaming data) while waiting for completion. Results are collected in `responses` keyed by agent name. `request_task_group()` is also available for fire-and-forget dispatch.
 
 ### Proxy Agents
 

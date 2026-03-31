@@ -886,8 +886,8 @@ class TestTaskLifecycle(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(request_msgs[0].target, "worker")
         self.assertEqual(request_msgs[0].payload, {"key": "val"})
 
-    async def test_request_task_multiple_agents(self):
-        """request_task() with multiple agents sends messages for each."""
+    async def test_request_task_group_multiple_agents(self):
+        """request_task_group() with multiple agents sends messages for each."""
         bus = self.bus
         sent = capture_bus(bus)
 
@@ -895,7 +895,7 @@ class TestTaskLifecycle(unittest.IsolatedAsyncioTestCase):
         parent.set_registry(self.registry)
         await register_agents(self.registry, "w1", "w2")
 
-        task_id = await parent.request_task("w1", "w2", payload={"work": True})
+        task_id = await parent.request_task_group("w1", "w2", payload={"work": True})
 
         request_msgs = [m for m in sent if isinstance(m, BusTaskRequestMessage)]
         self.assertEqual(len(request_msgs), 2)
@@ -978,7 +978,7 @@ class TestTaskLifecycle(unittest.IsolatedAsyncioTestCase):
         async def on_completed(agent, result):
             completed.append(result)
 
-        task_id = await parent.request_task("w1", "w2")
+        task_id = await parent.request_task_group("w1", "w2")
 
         # First response — should not trigger on_task_completed
         await parent.on_bus_message(
@@ -1017,7 +1017,7 @@ class TestTaskLifecycle(unittest.IsolatedAsyncioTestCase):
         parent.set_registry(self.registry)
         await register_agents(self.registry, "w1", "w2")
 
-        task_id = await parent.request_task("w1", "w2")
+        task_id = await parent.request_task_group("w1", "w2")
         sent.clear()
 
         await parent.cancel_task(task_id, reason="no longer needed")
@@ -1156,7 +1156,7 @@ class TestTaskLifecycle(unittest.IsolatedAsyncioTestCase):
         async def on_completed(agent, result):
             completed.append(result)
 
-        task_id = await parent.request_task("w1", "w2")
+        task_id = await parent.request_task_group("w1", "w2")
 
         # First agent ends stream — should not trigger on_task_completed
         await parent.on_bus_message(
