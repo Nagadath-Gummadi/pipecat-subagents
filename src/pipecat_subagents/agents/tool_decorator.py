@@ -7,7 +7,7 @@
 """Decorator for marking agent methods as tools."""
 
 
-def tool(fn=None, *, cancel_on_interruption=True):
+def tool(fn=None, *, cancel_on_interruption=True, timeout=None):
     """Mark an agent method as a tool.
 
     On ``LLMAgent`` subclasses, decorated methods are automatically
@@ -23,7 +23,7 @@ def tool(fn=None, *, cancel_on_interruption=True):
         async def my_tool(self, params, arg: str):
             ...
 
-        @tool(cancel_on_interruption=False)
+        @tool(cancel_on_interruption=False, timeout=60)
         async def my_tool(self, params, arg: str):
             ...
 
@@ -32,11 +32,14 @@ def tool(fn=None, *, cancel_on_interruption=True):
         cancel_on_interruption: Whether to cancel this tool call when
             an interruption occurs. Defaults to True. Only applies to
             ``LLMAgent`` tools.
+        timeout: Optional timeout in seconds for this tool call.
+            Defaults to None (uses the LLM service default).
     """
 
     def decorator(fn):
         fn.is_agent_tool = True
         fn.cancel_on_interruption = cancel_on_interruption
+        fn.timeout = timeout
         return fn
 
     if fn is not None:

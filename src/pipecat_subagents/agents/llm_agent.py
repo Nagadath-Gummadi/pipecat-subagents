@@ -206,6 +206,7 @@ class LLMAgent(BaseAgent):
             llm.register_direct_function(
                 tracked,
                 cancel_on_interruption=method.cancel_on_interruption,
+                timeout_secs=method.timeout,
             )
         return llm
 
