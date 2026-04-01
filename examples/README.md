@@ -226,28 +226,28 @@ Runs an LLM agent on a remote server, connected to the main transport agent via 
 
 ### Quick start (single machine)
 
-- Terminal 1: start the remote assistant agent
+_Terminal 1_: start the remote assistant agent
 ```bash
-uv run assistant_agent.py
+uv run distributed/remote-proxy-assistant/assistant_agent.py
 ```
 
-- Terminal 2: start the main transport agent
+_Terminal 2_: start the main transport agent
 ```bash
-uv run main_agent.py --remote-agent-url ws://localhost:8765/ws
+uv run distributed/remote-proxy-assistant/main_agent.py --remote-agent-url ws://localhost:8765/ws
 ```
 
 Open http://localhost:7860/client in your browser to talk to the bot.
 
 ### Running across machines
 
-- Server machine: start the assistant agent
+_Server machine_: start the assistant agent
 ```bash
-uv run assistant_agent.py --host 0.0.0.0 --port 8765
+uv run distributed/remote-proxy-assistant/assistant_agent.py --host 0.0.0.0 --port 8765
 ```
 
-- Client machine: point at the server
+_Client machine_: point at the server
 ```bash
-uv run main_agent.py --remote-agent-url ws://server-host:8765/ws
+uv run distributed/remote-proxy-assistant/main_agent.py --remote-agent-url ws://server-host:8765/ws
 ```
 
 ### Architecture
