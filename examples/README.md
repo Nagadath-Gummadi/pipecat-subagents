@@ -31,13 +31,13 @@ cp env.example .env
 # Table of Contents
 
 **[Local](#local)** (single process)
-- [Agent Handoff](local/agent-handoff/)
-- [Parallel Debate](local/parallel-debate/)
-- [Voice Code Assistant with Claude Agent SDK](local/code-assistant/)
+- [Agent Handoff](#agent-handoff)
+- [Parallel Debate](#parallel-debate)
+- [Voice Code Assistant with Claude Agent SDK](#voice-code-assistant)
 
 **[Distributed](#distributed)** (multi-process)
-- [Agent Handoff via Redis](distributed/redis-handoff/)
-- [LLM Agent via WebSocket Proxy](distributed/remote-proxy-assistant/)
+- [Agent Handoff via Redis](#agent-handoff-via-redis)
+- [LLM Agent via WebSocket Proxy](#llm-agent-via-websocket-proxy)
 
 # Local
 
@@ -156,23 +156,29 @@ Examples where agents run across separate processes or machines.
 
 ## Agent Handoff via Redis
 
-Same two-agent handoff as `examples/agent-handoff/two_llm_agents.py`, but
+Same two-agent handoff as `local/agent-handoff/two_llm_agents.py`, but
 each agent runs as a separate process connected via Redis pub/sub.
 
 ### Quick start (single machine, local Redis)
 
+_Terminal 1_: start Redis
 ```bash
-# Terminal 1: start Redis
 docker run --rm -p 6379:6379 redis:7
+```
 
-# Terminal 2: start the greeter agent
-uv run llm_agent.py greeter
+_Terminal 2_: start the greeter agent
+```bash
+uv run distributed/redis-handoff/llm_agent.py greeter
+```
 
-# Terminal 3: start the support agent
-uv run llm_agent.py support
+_Terminal 3_: start the support agent
+```bash
+uv run distributed/redis-handoff/llm_agent.py support
+```
 
-# Terminal 4: start the main transport agent
-uv run main_agent.py
+_Terminal 4_: start the main transport agent
+```bash
+uv run distributed/redis-handoff/main_agent.py
 ```
 
 All three agent processes connect to `redis://localhost:6379` by default.
@@ -181,15 +187,19 @@ All three agent processes connect to `redis://localhost:6379` by default.
 
 Point each process at the same Redis instance:
 
+_Machine A_
 ```bash
-# Machine A
-uv run main_agent.py --redis-url redis://your-redis-host:6379
+uv run distributed/redis-handoff/main_agent.py --redis-url redis://your-redis-host:6379
+```
 
-# Machine B
-uv run llm_agent.py greeter --redis-url redis://your-redis-host:6379
+_Machine B_
+```bash
+uv run distributed/redis-handoff/llm_agent.py greeter --redis-url redis://your-redis-host:6379
+```
 
-# Machine C
-uv run llm_agent.py support --redis-url redis://your-redis-host:6379
+_Machine C_
+```bash
+uv run distributed/redis-handoff/llm_agent.py support --redis-url redis://your-redis-host:6379
 ```
 
 ### Architecture
@@ -216,24 +226,28 @@ Runs an LLM agent on a remote server, connected to the main transport agent via 
 
 ### Quick start (single machine)
 
+_Terminal 1_: start the remote assistant agent
 ```bash
-# Terminal 1: start the remote assistant agent
-uv run assistant_agent.py
+uv run distributed/remote-proxy-assistant/assistant_agent.py
+```
 
-# Terminal 2: start the main transport agent
-uv run main_agent.py --remote-agent-url ws://localhost:8765/ws
+_Terminal 2_: start the main transport agent
+```bash
+uv run distributed/remote-proxy-assistant/main_agent.py --remote-agent-url ws://localhost:8765/ws
 ```
 
 Open http://localhost:7860/client in your browser to talk to the bot.
 
 ### Running across machines
 
+_Server machine_: start the assistant agent
 ```bash
-# Server machine: start the assistant agent
-uv run assistant_agent.py --host 0.0.0.0 --port 8765
+uv run distributed/remote-proxy-assistant/assistant_agent.py --host 0.0.0.0 --port 8765
+```
 
-# Client machine: point at the server
-uv run main_agent.py --remote-agent-url ws://server-host:8765/ws
+_Client machine_: point at the server
+```bash
+uv run distributed/remote-proxy-assistant/main_agent.py --remote-agent-url ws://server-host:8765/ws
 ```
 
 ### Architecture
