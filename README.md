@@ -12,12 +12,20 @@ Whether local or distributed, the programming model is the same: create an `Agen
 
 Pipecat is a powerful real-time framework for building voice and multimodal AI applications. Pipecat Subagents extends it with distributed multi-agent coordination where each agent runs its own Pipecat pipeline.
 
-**Use Pipecat Subagents when you need:**
+**Some things you can build:**
+
+- A customer support system where each specialist runs its own LLM with dedicated tools and context, transferring seamlessly between each other.
+- A video game where multiple LLMs independently control different characters, environments, or game mechanics.
+- A stock analysis app that dispatches parallel research to multiple worker agents and synthesizes their findings.
+- A video or image analysis pipeline where worker agents process media using Pipecat processors and stream updates back.
+- An IoT system where remote devices run agents on specialized hardware, reporting status and receiving commands.
+
+**What makes this possible:**
 
 - **Per-agent pipeline** — every agent runs its own Pipecat pipeline with access to all services, processors, and transports (e.g. different LLMs, local models, image analysis, custom processors).
 - **Agent handoff** — transfer control between agents mid-conversation, seamlessly switching context and capabilities.
 - **Task coordination** — dispatch work to specialized worker agents in parallel, track progress with timeouts and cancellation, and stream results back.
-- **Distributed agents** — run agents across machines, scaling each independently (e.g. specialized hardware, IoT devices). Agents communicate via a shared bus that works the same locally or over the network.
+- **Distributed agents** — run agents across machines, scaling each independently. Agents communicate via a shared bus that works the same locally or over the network.
 - **Mixed agent types** — combine free-form LLM agents with structured [Pipecat Flows](https://github.com/pipecat-ai/pipecat-flows) agents or wrap third-party frameworks as subagents.
 - **Agent lifecycle** — activation, deactivation, error propagation, and graceful shutdown across a tree of agents.
 
