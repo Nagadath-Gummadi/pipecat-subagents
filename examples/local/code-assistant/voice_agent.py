@@ -38,9 +38,8 @@ class VoiceAgent(LLMAgent):
                     "context across questions, so follow-up questions work naturally.\n\n"
                     "When the user asks anything about code, project structure, files, "
                     "dependencies, tests, or wants to explore the codebase, call the "
-                    "ask_code tool. When the answer comes back, summarize it naturally "
-                    "for speaking. Keep responses concise and conversational.\n\n"
-                    "If the user asks something unrelated to the project, answer directly."
+                    "ask_code tool. When the worker result comes back, summarize it naturally "
+                    "for speaking. Keep responses concise and conversational.\n"
                 ),
             ),
         )
@@ -52,6 +51,14 @@ class VoiceAgent(LLMAgent):
 
     @tool(cancel_on_interruption=False, timeout=60)
     async def ask_code(self, params: FunctionCallParams, question: str):
+        """Ask a question about the codebase. A Claude Code worker will
+        explore the project by reading files, searching code, and running
+        commands. It remembers previous questions for follow-ups.
+
+        Args:
+            question (str): The question about code, files, structure,
+                dependencies, or anything in the project.
+        """
         logger.info(f"Agent '{self.name}': asking code worker: '{question}'")
         async with self.task("code_worker", payload={"question": question}) as task:
             await params.llm.queue_frame(
