@@ -17,6 +17,13 @@ from dataclasses import asdict, dataclass, field, is_dataclass
 from typing import Any, Optional
 
 from loguru import logger
+from pipecat.frames.frames import (
+    BotSpeakingFrame,
+    Frame,
+    InputAudioRawFrame,
+    OutputAudioRawFrame,
+    UserSpeakingFrame,
+)
 from websockets import ConnectionClosedOK, serve
 
 from pipecat_subagents.agents.base_agent import BaseAgent
@@ -133,6 +140,9 @@ def _serialize_message(message: BusMessage) -> dict:
         data["direction"] = message.direction.name.lower()
         if message.bridge:
             data["bridge"] = message.bridge
+        frame_data = _serialize_value(message.frame)
+        if isinstance(frame_data, dict):
+            data["frame"] = frame_data
     elif isinstance(message, BusActivateAgentMessage):
         if message.args:
             data["args"] = _serialize_value(message.args)
@@ -202,6 +212,14 @@ class ClowderAgent(BaseAgent):
         runner.add_agent(clowder)
     """
 
+    # No frame types excluded by default.
+    DEFAULT_EXCLUDE_FRAMES: tuple[type[Frame], ...] = (
+        InputAudioRawFrame,
+        OutputAudioRawFrame,
+        UserSpeakingFrame,
+        BotSpeakingFrame,
+    )
+
     def __init__(
         self,
         name: str = "clowder",
@@ -209,6 +227,7 @@ class ClowderAgent(BaseAgent):
         bus,
         host: str = "localhost",
         port: int = 7070,
+        exclude_frames: Optional[tuple[type[Frame], ...]] = None,
     ):
         """Initialize the ClowderAgent.
 
@@ -217,10 +236,13 @@ class ClowderAgent(BaseAgent):
             bus: The `AgentBus` to observe.
             host: WebSocket server bind address. Defaults to "localhost".
             port: WebSocket server port. Defaults to 7070.
+            exclude_frames: Frame types to skip. Defaults to
+                high-frequency audio frames.
         """
         super().__init__(name, bus=bus)
         self._host = host
         self._port = port
+        self._exclude_frames = exclude_frames or self.DEFAULT_EXCLUDE_FRAMES
 
         # Tracked state
         self._agents: dict[str, AgentInfo] = {}
@@ -248,10 +270,10 @@ class ClowderAgent(BaseAgent):
         """Capture every bus message, update state, and broadcast to clients.
 
         Overrides the base implementation to see ALL messages, including
-        those targeted at other agents.
+        those targeted at other agents. High-frequency audio frames are
+        skipped to avoid flooding the connection.
         """
-        # Skip frame messages (audio/video payloads would flood the client)
-        if isinstance(message, BusFrameMessage):
+        if isinstance(message, BusFrameMessage) and isinstance(message.frame, self._exclude_frames):
             return
 
         # Update internal state
