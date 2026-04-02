@@ -37,7 +37,9 @@ See the [examples](examples/) directory for complete, runnable demos.
 
 ## 🔍 Observability with Clowder
 
-Clowder (a group of cats) is a real-time observability tool for Pipecat Subagents. It shows your agent hierarchy, task lifecycle, and bus messages in a web UI.
+Clowder (a group of cats) is a real-time observability tool for Pipecat Subagents. It shows runners, agents, tasks, and bus messages in a web UI, whether local or distributed.
+
+<p align="center"><img src="https://github.com/pipecat-ai/pipecat-subagents/raw/refs/heads/main/clowder-image.png" alt="Clowder" width="500"/></p>
 
 ### Adding Clowder to your system
 
