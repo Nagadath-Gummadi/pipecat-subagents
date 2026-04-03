@@ -27,6 +27,7 @@ from pipecat.frames.frames import (
 from websockets import ConnectionClosedOK, serve
 
 from pipecat_subagents.agents.base_agent import BaseAgent
+from pipecat_subagents.bus.bus import AgentBus
 from pipecat_subagents.bus.messages import (
     BusActivateAgentMessage,
     BusAddAgentMessage,
@@ -224,7 +225,7 @@ class ClowderAgent(BaseAgent):
         self,
         name: str = "clowder",
         *,
-        bus,
+        bus: AgentBus,
         host: str = "localhost",
         port: int = 7070,
         exclude_frames: Optional[tuple[type[Frame], ...]] = None,
@@ -257,7 +258,7 @@ class ClowderAgent(BaseAgent):
         """Start the WebSocket server."""
         await super().on_ready()
         self._server = await serve(self._ws_handler, self._host, self._port)
-        logger.info(f"Clowder: WebSocket server listening on ws://{self._host}:{self._port}")
+        logger.info(f"ᓚᘏᗢ Clowder: WebSocket server listening on ws://{self._host}:{self._port}")
 
     async def cleanup(self) -> None:
         """Shut down the WebSocket server."""
@@ -359,7 +360,7 @@ class ClowderAgent(BaseAgent):
 
     async def _ws_handler(self, websocket) -> None:
         self._clients.add(websocket)
-        logger.info(f"Clowder: client connected ({len(self._clients)} total)")
+        logger.info(f"ᓚᘏᗢ Clowder: client connected ({len(self._clients)} total)")
         try:
             # Send current state snapshot
             snapshot = self._build_snapshot()
@@ -372,7 +373,7 @@ class ClowderAgent(BaseAgent):
             pass
         finally:
             self._clients.discard(websocket)
-            logger.info(f"Clowder: client disconnected ({len(self._clients)} total)")
+            logger.info(f"ᓚᘏᗢ Clowder: client disconnected ({len(self._clients)} total)")
 
     def _build_snapshot(self) -> dict:
         return {
