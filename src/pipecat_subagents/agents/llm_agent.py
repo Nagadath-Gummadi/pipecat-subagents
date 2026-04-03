@@ -315,7 +315,7 @@ class LLMAgent(BaseAgent):
         return wrapper
 
     async def _flush_deferred_frames(self) -> None:
-        # Wait unti the function result frame is really processed.
+        # Wait until the function result frame is really processed.
         await self._flush_pipeline()
 
         frames = list(self._deferred_frames)
@@ -346,5 +346,5 @@ class LLMAgent(BaseAgent):
 
         await result_callback(None, properties=FunctionCallResultProperties(run_llm=False))
 
-        # Wait unti the function result frame is really processed.
+        # Wait until the function result frame is really processed.
         await self._flush_pipeline()
