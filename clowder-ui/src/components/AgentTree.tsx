@@ -7,7 +7,6 @@ import { AGENT_STATE_COLORS, TASK_STATUS_COLORS } from "../colors";
 function formatDuration(startedAt: number, completedAt: number | null): string {
   const end = completedAt || Date.now() / 1000;
   const seconds = end - startedAt;
-  if (seconds < 1) return `${Math.round(seconds * 1000)}ms`;
   if (seconds < 60) return `${seconds.toFixed(1)}s`;
   return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
 }

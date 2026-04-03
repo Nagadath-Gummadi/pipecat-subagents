@@ -107,10 +107,23 @@ function AgentDetail({ agent }: { agent: Agent }) {
   );
 }
 
+function DurationTicker({ startedAt, completedAt }: { startedAt: number; completedAt: number | null }) {
+  const [, setTick] = useState(0);
+  const isRunning = completedAt === null;
+
+  useEffect(() => {
+    if (!isRunning) return;
+    const id = setInterval(() => setTick((t) => t + 1), 200);
+    return () => clearInterval(id);
+  }, [isRunning]);
+
+  const end = completedAt || Date.now() / 1000;
+  const seconds = end - startedAt;
+  if (seconds < 60) return <>{seconds.toFixed(1)}s</>;
+  return <>{Math.floor(seconds / 60)}m {Math.round(seconds % 60)}s</>;
+}
+
 function TaskDetail({ task }: { task: Task }) {
-  const duration = task.completed_at
-    ? `${(task.completed_at - task.started_at).toFixed(2)}s`
-    : formatUptime(task.started_at);
 
   return (
     <>
@@ -128,7 +141,7 @@ function TaskDetail({ task }: { task: Task }) {
           />
         }
       />
-      <Row label="Duration" value={duration} />
+      <Row label="Duration" value={<DurationTicker startedAt={task.started_at} completedAt={task.completed_at} />} />
 
       <Row label="Started" value={formatTimestamp(task.started_at)} />
       {task.completed_at && <Row label="Completed" value={formatTimestamp(task.completed_at)} />}
