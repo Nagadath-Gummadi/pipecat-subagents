@@ -116,9 +116,13 @@ class LLMAgent(BaseAgent):
 
         # Tool call deferral. When defer_tool_frames is True, frames
         # queued during tool execution are held until all tools complete.
+        # When _closing is set (by end()), deferral and flushing are
+        # skipped to prevent a deadlock: the EndFrame terminates the
+        # pipeline, so a flush probe would never complete its round-trip.
         self._defer_tool_frames = defer_tool_frames
         self._tool_call_inflight: int = 0
         self._deferred_frames: deque[tuple[Frame, FrameDirection]] = deque()
+        self._closing: bool = False
 
     async def on_activated(self, args: Optional[dict]) -> None:
         """Configure the LLM with tools and activation messages.
@@ -159,7 +163,7 @@ class LLMAgent(BaseAgent):
             direction: Direction the frame should travel. Defaults to
                 ``FrameDirection.DOWNSTREAM``.
         """
-        if self._defer_tool_frames and self._tool_call_inflight > 0:
+        if self._defer_tool_frames and self._tool_call_inflight > 0 and not self._closing:
             self._deferred_frames.append((frame, direction))
         else:
             await super().queue_frame(frame, direction)
@@ -260,7 +264,8 @@ class LLMAgent(BaseAgent):
             result_callback: The ``result_callback`` from
                 `FunctionCallParams`.
         """
-        await self._close_function_call(result_callback)
+        self._closing = True
+        await self._finish_function_call(result_callback)
         await super().end(reason=reason)
 
     async def handoff_to(
@@ -281,7 +286,7 @@ class LLMAgent(BaseAgent):
                 ``on_activated`` handler.
             result_callback: The ``result_callback`` from `FunctionCallParams`.
         """
-        await self._close_function_call(result_callback)
+        await self._finish_function_call(result_callback)
         await super().handoff_to(agent_name, args=args)
 
     async def process_deferred_tool_frames(
@@ -309,7 +314,7 @@ class LLMAgent(BaseAgent):
                 return await method(params, *args, **kwargs)
             finally:
                 self._tool_call_inflight = max(0, self._tool_call_inflight - 1)
-                if self._tool_call_inflight == 0:
+                if not self._closing and self._tool_call_inflight == 0:
                     await self._flush_deferred_frames()
 
         return wrapper
@@ -328,10 +333,10 @@ class LLMAgent(BaseAgent):
         await self.pipeline_task.queue_frame(PipelineFlushFrame(), FrameDirection.UPSTREAM)
         await self._flush_done.wait()
 
-    async def _close_function_call(
+    async def _finish_function_call(
         self, result_callback: Optional[FunctionCallResultCallback]
     ) -> None:
-        """Close out an in-progress function call before taking action.
+        """Finish an in-progress function call before taking action.
 
         Sends a `PipelineFlushFrame` probe upstream through the pipeline.
         When it reaches the top it is bounced back downstream. When it
