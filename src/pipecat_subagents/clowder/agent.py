@@ -258,10 +258,11 @@ class ClowderAgent(BaseAgent):
         """Start the WebSocket server."""
         await super().on_ready()
         self._server = await serve(self._ws_handler, self._host, self._port)
-        logger.info(f"ᓚᘏᗢ Clowder: WebSocket server listening on ws://{self._host}:{self._port}")
+        logger.info(f"ᓚᘏᗢ Clowder: server listening on ws://{self._host}:{self._port}")
 
     async def cleanup(self) -> None:
         """Shut down the WebSocket server."""
+        logger.info("ᓚᘏᗢ Clowder: closing server")
         if self._server:
             self._server.close()
             await self._server.wait_closed()
@@ -284,6 +285,8 @@ class ClowderAgent(BaseAgent):
         event = _serialize_message(message)
         self._event_history.append(event)
         await self._broadcast(event)
+
+        await super().on_bus_message(message)
 
     def _update_state(self, message: BusMessage) -> None:
         now = time.time()
