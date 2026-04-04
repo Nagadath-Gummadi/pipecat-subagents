@@ -828,7 +828,7 @@ class BaseAgent(BaseObject, BusSubscriber):
                 ``on_activated`` handler.
         """
         if self._active:
-            await self.send_message(BusDeactivateAgentMessage(source=self.name, target=self.name))
+            await self.deactivate_agent(self.name)
         await self.activate_agent(agent_name, args=args)
 
     async def watch_agent(self, agent_name: str) -> None:
