@@ -14,6 +14,7 @@ and task state (status, timing) to provide a snapshot on connect.
 import json
 import time
 from dataclasses import asdict, dataclass, field, is_dataclass
+from enum import Enum
 from typing import Any, Optional
 
 from loguru import logger
@@ -24,6 +25,7 @@ from pipecat.frames.frames import (
     OutputAudioRawFrame,
     UserSpeakingFrame,
 )
+from pydantic import BaseModel
 from websockets import ConnectionClosedOK, serve
 
 from pipecat_subagents.agents.base_agent import BaseAgent
@@ -123,8 +125,10 @@ def _serialize_value(obj: Any) -> Any:
         return {k: _serialize_value(v) for k, v in obj.items() if v is not None}
     if isinstance(obj, (list, tuple, set)):
         return [_serialize_value(v) for v in obj]
-    if hasattr(obj, "value"):
+    if isinstance(obj, Enum):
         return obj.value
+    if isinstance(obj, BaseModel):
+        return _serialize_value(obj.model_dump())
     return f"<{type(obj).__name__}>"
 
 
