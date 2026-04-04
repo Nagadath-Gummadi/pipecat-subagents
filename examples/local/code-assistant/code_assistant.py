@@ -72,12 +72,13 @@ class CodeAssistant(BaseAgent):
         super().__init__(name, bus=bus)
         self._transport = transport
 
+    async def on_ready(self) -> None:
+        await super().on_ready()
+        # We just want to get on_agent_ready for the "voice" agent.
+        await self.watch_agent("voice")
+
     async def on_agent_ready(self, data: AgentReadyData):
         await super().on_agent_ready(data)
-
-        if data.agent_name != "voice":
-            return
-
         await self.activate_agent(
             "voice",
             args=LLMAgentActivationArgs(

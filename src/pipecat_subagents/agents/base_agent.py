@@ -757,8 +757,9 @@ class BaseAgent(BaseObject, BusSubscriber):
         """Register a child agent under this parent.
 
         The child's lifecycle (end, cancel) is automatically managed
-        by this parent agent. The parent is notified via
-        ``on_agent_ready`` when the child's pipeline starts.
+        by this parent agent. To receive ``on_agent_ready`` when the
+        child starts, call ``watch_agent(agent.name)`` (typically from
+        ``on_ready`` to ensure this agent's own pipeline is running).
 
         Args:
             agent: The child `BaseAgent` instance to add.
@@ -768,8 +769,6 @@ class BaseAgent(BaseObject, BusSubscriber):
             return
         agent._parent = self.name
         self._children.append(agent)
-        if self._registry:
-            await self._registry.watch(agent.name, self._on_watched_agent_ready)
         await self.send_message(BusAddAgentMessage(source=self.name, agent=agent))
 
     async def activate_agent(
