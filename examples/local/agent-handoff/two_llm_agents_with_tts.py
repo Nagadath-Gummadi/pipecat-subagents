@@ -96,7 +96,10 @@ class AcmeTTSAgent(LLMAgent):
         await params.llm.queue_frame(
             LLMMessagesAppendFrame(
                 messages=[
-                    {"role": "user", "content": f"Tell the user about the transfer ({reason})."}
+                    {
+                        "role": "developer",
+                        "content": f"Tell the user about the transfer ({reason}).",
+                    }
                 ],
                 run_llm=True,
             )
@@ -104,7 +107,7 @@ class AcmeTTSAgent(LLMAgent):
         await self.handoff_to(
             agent,
             args=LLMAgentActivationArgs(
-                messages=[{"role": "user", "content": reason}],
+                messages=[{"role": "developer", "content": reason}],
             ),
             result_callback=params.result_callback,
         )
@@ -118,7 +121,9 @@ class AcmeTTSAgent(LLMAgent):
         """
         logger.info(f"Agent '{self.name}': ending conversation ({reason})")
         await params.llm.queue_frame(
-            LLMMessagesAppendFrame(messages=[{"role": "user", "content": reason}], run_llm=True)
+            LLMMessagesAppendFrame(
+                messages=[{"role": "developer", "content": reason}], run_llm=True
+            )
         )
         await self.end(reason=reason, result_callback=params.result_callback)
 
@@ -199,7 +204,7 @@ class AcmeAgent(BaseAgent):
             args=LLMAgentActivationArgs(
                 messages=[
                     {
-                        "role": "user",
+                        "role": "developer",
                         "content": (
                             "Welcome the user to Acme Corp, mention the available products "
                             "and ask how you can help."

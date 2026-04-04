@@ -83,7 +83,7 @@ class AcmeAgent(BaseAgent):
             args=LLMAgentActivationArgs(
                 messages=[
                     {
-                        "role": "user",
+                        "role": "developer",
                         "content": (
                             "Welcome the user to Acme Corp, mention the available "
                             "products and ask how you can help."

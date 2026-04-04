@@ -99,7 +99,7 @@ class AcmeLLMAgent(LLMAgent):
         logger.info(f"Agent '{self.name}': transferring to '{agent}' ({reason})")
         await self.handoff_to(
             agent,
-            args=LLMAgentActivationArgs(messages=[{"role": "user", "content": reason}]),
+            args=LLMAgentActivationArgs(messages=[{"role": "developer", "content": reason}]),
             result_callback=params.result_callback,
         )
 
@@ -112,7 +112,9 @@ class AcmeLLMAgent(LLMAgent):
         """
         logger.info(f"Agent '{self.name}': ending conversation ({reason})")
         await params.llm.queue_frame(
-            LLMMessagesAppendFrame(messages=[{"role": "user", "content": reason}], run_llm=True)
+            LLMMessagesAppendFrame(
+                messages=[{"role": "developer", "content": reason}], run_llm=True
+            )
         )
         await self.end(reason=reason, result_callback=params.result_callback)
 

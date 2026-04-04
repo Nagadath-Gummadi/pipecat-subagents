@@ -122,7 +122,7 @@ class DebateWorker(LLMAgent):
         await super().on_task_request(message)
         await self.queue_frame(
             LLMMessagesAppendFrame(
-                messages=[{"role": "user", "content": f"Topic: {message.payload['topic']}"}],
+                messages=[{"role": "developer", "content": f"Topic: {message.payload['topic']}"}],
                 run_llm=True,
             )
         )
@@ -190,7 +190,7 @@ class DebateAgent(BaseAgent):
             args=LLMAgentActivationArgs(
                 messages=[
                     {
-                        "role": "user",
+                        "role": "developer",
                         "content": (
                             "Greet the user and tell them you can moderate a debate "
                             "on any topic. Ask what they'd like to explore."

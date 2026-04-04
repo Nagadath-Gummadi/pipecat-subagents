@@ -70,7 +70,9 @@ class AcmeAssistant(LLMAgent):
         """
         logger.info(f"Agent '{self.name}': ending conversation ({reason})")
         await params.llm.queue_frame(
-            LLMMessagesAppendFrame(messages=[{"role": "user", "content": reason}], run_llm=True)
+            LLMMessagesAppendFrame(
+                messages=[{"role": "developer", "content": reason}], run_llm=True
+            )
         )
         await self.end(reason=reason, result_callback=params.result_callback)
 

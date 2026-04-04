@@ -79,7 +79,7 @@ class CodeAssistant(BaseAgent):
             args=LLMAgentActivationArgs(
                 messages=[
                     {
-                        "role": "user",
+                        "role": "developer",
                         "content": "Greet the user and tell them you're a code assistant.",
                     },
                 ],
