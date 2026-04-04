@@ -19,7 +19,20 @@ from pipecat_subagents.bus.messages import (
     BusTaskRequestMessage,
     BusTaskResponseMessage,
 )
+from pydantic import BaseModel
+
 from pipecat_subagents.bus.serializers import JSONMessageSerializer
+
+
+class _Address(BaseModel):
+    city: str
+    zip_code: str
+
+
+class _UserInfo(BaseModel):
+    name: str
+    age: int
+    address: _Address | None = None
 
 
 class TestJSONMessageSerializer(unittest.TestCase):
@@ -178,6 +191,46 @@ class TestJSONMessageSerializer(unittest.TestCase):
         # TextTypeAdapter is registered for TextFrame, should handle subclass
         data = self.serializer.serialize(msg)
         self.assertIsInstance(data, bytes)
+
+    def test_round_trip_pydantic_base_model(self):
+        """Pydantic BaseModel round-trips preserving the type."""
+        msg = BusTaskResponseMessage(
+            source="worker",
+            target="parent",
+            task_id="t-456",
+            status="completed",
+            response={"user": _UserInfo(name="Alice", age=30)},
+        )
+        data = self.serializer.serialize(msg)
+        restored = self.serializer.deserialize(data)
+
+        self.assertIsInstance(restored, BusTaskResponseMessage)
+        user = restored.response["user"]
+        self.assertIsInstance(user, _UserInfo)
+        self.assertEqual(user.name, "Alice")
+        self.assertEqual(user.age, 30)
+
+    def test_round_trip_nested_pydantic_base_model(self):
+        """Nested Pydantic BaseModels round-trip preserving types."""
+        user = _UserInfo(
+            name="Alice", age=30, address=_Address(city="NYC", zip_code="10001")
+        )
+        msg = BusTaskResponseMessage(
+            source="worker",
+            target="parent",
+            task_id="t-789",
+            status="completed",
+            response={"user": user},
+        )
+        data = self.serializer.serialize(msg)
+        restored = self.serializer.deserialize(data)
+
+        self.assertIsInstance(restored, BusTaskResponseMessage)
+        restored_user = restored.response["user"]
+        self.assertIsInstance(restored_user, _UserInfo)
+        self.assertIsInstance(restored_user.address, _Address)
+        self.assertEqual(restored_user.address.city, "NYC")
+        self.assertEqual(restored_user.address.zip_code, "10001")
 
     def test_non_init_fields_preserved(self):
         """Non-init dataclass fields survive round-trip via setattr."""

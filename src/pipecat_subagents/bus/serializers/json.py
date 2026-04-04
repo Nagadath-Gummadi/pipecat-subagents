@@ -15,6 +15,7 @@ from functools import lru_cache
 from typing import Any, Optional
 
 from loguru import logger
+from pydantic import BaseModel
 
 from pipecat_subagents.bus.adapters.base import TypeAdapter
 from pipecat_subagents.bus.messages import BusMessage
@@ -100,6 +101,15 @@ class JSONMessageSerializer(MessageSerializer):
             return [self._serialize_value(v) for v in value]
         if isinstance(value, bytes):
             return {"__type__": "bytes", "__data__": base64.b64encode(value).decode("ascii")}
+        if isinstance(value, BaseModel):
+            return {
+                "__type__": f"{type(value).__module__}.{type(value).__name__}",
+                "__data__": {
+                    k: self._serialize_value(v)
+                    for k, v in value.__dict__.items()
+                    if v is not None
+                },
+            }
         if callable(value):
             return None
         adapter = self._find_adapter(type(value))
@@ -151,6 +161,10 @@ class JSONMessageSerializer(MessageSerializer):
         adapter = self._find_adapter(cls)
         if adapter is not None:
             return adapter.deserialize(data, self._deserialize_value, target_type=cls)
+        if isinstance(data, dict) and issubclass(cls, BaseModel):
+            return cls.model_validate(
+                {k: self._deserialize_value(v) for k, v in data.items()}
+            )
         if dataclasses.is_dataclass(cls) and isinstance(data, dict):
             init_fields = {f.name: f for f in dataclasses.fields(cls) if f.init}
             init_kwargs = {}
