@@ -19,6 +19,7 @@ from pipecat_subagents.agents.llm_agent import LLMAgent, LLMAgentActivationArgs
 from pipecat_subagents.agents.task_context import (
     TaskContext,
     TaskError,
+    TaskEvent,
     TaskGroupContext,
     TaskGroupError,
     TaskGroupEvent,
@@ -36,6 +37,7 @@ __all__ = [
     "LLMAgent",
     "TaskContext",
     "TaskError",
+    "TaskEvent",
     "TaskGroupContext",
     "TaskGroupError",
     "TaskGroupEvent",

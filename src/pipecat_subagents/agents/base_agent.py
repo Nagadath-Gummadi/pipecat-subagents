@@ -912,7 +912,7 @@ class BaseAgent(BaseObject, BusSubscriber):
 
             async with self.task("worker", payload=data) as t:
                 async for event in t:
-                    if event.type == TaskGroupEvent.UPDATE:
+                    if event.type == TaskEvent.UPDATE:
                         print(event.data)
 
             print(t.response)

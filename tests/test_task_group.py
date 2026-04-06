@@ -14,6 +14,7 @@ from pipecat.utils.asyncio.task_manager import TaskManager, TaskManagerParams
 from pipecat_subagents.agents.base_agent import BaseAgent
 from pipecat_subagents.agents.task_context import (
     TaskError,
+    TaskEvent,
     TaskGroupError,
     TaskGroupEvent,
     TaskStatus,
@@ -556,8 +557,8 @@ class TestTaskContext(unittest.IsolatedAsyncioTestCase):
                 events.append(event)
 
         self.assertEqual(len(events), 1)
-        self.assertEqual(events[0].type, TaskGroupEvent.UPDATE)
-        self.assertEqual(events[0].agent_name, "worker")
+        self.assertEqual(events[0].type, TaskEvent.UPDATE)
+        self.assertIsInstance(events[0], TaskEvent)
         self.assertEqual(t.response, {"done": True})
 
     async def test_task_streams_data(self):
@@ -582,10 +583,10 @@ class TestTaskContext(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             types,
             [
-                TaskGroupEvent.STREAM_START,
-                TaskGroupEvent.STREAM_DATA,
-                TaskGroupEvent.STREAM_DATA,
-                TaskGroupEvent.STREAM_END,
+                TaskEvent.STREAM_START,
+                TaskEvent.STREAM_DATA,
+                TaskEvent.STREAM_DATA,
+                TaskEvent.STREAM_END,
             ],
         )
         self.assertEqual(t.response, {"ok": True})

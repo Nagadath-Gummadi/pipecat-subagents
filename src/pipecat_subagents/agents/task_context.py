@@ -62,6 +62,24 @@ class TaskGroupResponse:
 
 
 @dataclass
+class TaskEvent:
+    """An event received from a worker during single-agent task execution.
+
+    Parameters:
+        type: The event type.
+        data: Optional event payload.
+    """
+
+    UPDATE: ClassVar[str] = "update"
+    STREAM_START: ClassVar[str] = "stream_start"
+    STREAM_DATA: ClassVar[str] = "stream_data"
+    STREAM_END: ClassVar[str] = "stream_end"
+
+    type: str
+    data: Optional[dict] = None
+
+
+@dataclass
 class TaskGroupEvent:
     """An event received from a worker during task group execution.
 
@@ -300,13 +318,13 @@ class TaskContext:
     def __aiter__(self):
         return self
 
-    async def __anext__(self) -> TaskGroupEvent:
+    async def __anext__(self) -> TaskEvent:
         if not self._group or not self._group.event_queue:
             raise StopAsyncIteration
         event = await self._group.event_queue.get()
         if event is None:
             raise StopAsyncIteration
-        return event
+        return TaskEvent(type=event.type, data=event.data)
 
     async def __aenter__(self) -> TaskContext:
         self._group = await self._agent.create_task_group_and_request_task(
