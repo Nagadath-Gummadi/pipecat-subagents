@@ -1183,9 +1183,9 @@ class BaseAgent(BaseObject, BusSubscriber):
         self._started_at = time.time()
         await self.on_ready()
         await self._call_event_handler("on_ready")
-        await self._watch_decorated_agents()
         await self._register_ready()
         await self._maybe_activate()
+        await self._watch_decorated_agents()
 
     async def _stop(self) -> None:
         """Clean up and signal that this agent has stopped.
