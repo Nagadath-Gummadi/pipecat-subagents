@@ -1206,12 +1206,10 @@ class BaseAgent(BaseObject, BusSubscriber):
         for root agents).
         """
         if self._registry:
-            await self._registry.register(
-                AgentReadyData(
-                    agent_name=self.name,
-                    runner=self._registry.runner_name,
-                )
-            )
+            # Send the bus message before registering. Registration
+            # fires watchers synchronously, which may send additional
+            # messages (e.g. ActivateAgent). Sending the ready message
+            # first preserves correct chronological order for observers.
             await self.send_message(
                 BusAgentReadyMessage(
                     source=self.name,
@@ -1220,6 +1218,12 @@ class BaseAgent(BaseObject, BusSubscriber):
                     active=self._active,
                     bridged=self._bridged is not None,
                     started_at=self._started_at,
+                )
+            )
+            await self._registry.register(
+                AgentReadyData(
+                    agent_name=self.name,
+                    runner=self._registry.runner_name,
                 )
             )
 
