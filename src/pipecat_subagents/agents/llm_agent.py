@@ -276,7 +276,7 @@ class LLMAgent(BaseAgent):
         self,
         agent_name: str,
         *,
-        args: Optional[AgentActivationArgs] = None,
+        activation_args: Optional[AgentActivationArgs] = None,
         messages: Optional[list] = None,
         result_callback: Optional[FunctionCallResultCallback] = None,
     ) -> None:
@@ -287,15 +287,15 @@ class LLMAgent(BaseAgent):
 
         Args:
             agent_name: The name of the agent to hand off to.
-            args: Optional arguments forwarded to the target agent's
-                ``on_activated`` handler.
+            activation_args: Optional arguments forwarded to the target
+                agent's ``on_activated`` handler.
             messages: Optional LLM messages to inject and speak before
                 handing off. The LLM runs immediately so the output is
                 delivered before the transfer completes.
             result_callback: The ``result_callback`` from `FunctionCallParams`.
         """
         await self._finish_function_call(result_callback, messages=messages)
-        await super().handoff_to(agent_name, args=args)
+        await super().handoff_to(agent_name, activation_args=activation_args)
 
     async def process_deferred_tool_frames(
         self, frames: list[tuple[Frame, FrameDirection]]

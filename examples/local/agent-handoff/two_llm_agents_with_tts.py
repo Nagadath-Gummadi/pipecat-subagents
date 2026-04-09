@@ -100,7 +100,7 @@ class AcmeTTSAgent(LLMAgent):
                     "content": f"Tell the user about the transfer ({reason}).",
                 }
             ],
-            args=LLMAgentActivationArgs(
+            activation_args=LLMAgentActivationArgs(
                 messages=[{"role": "developer", "content": reason}],
             ),
             result_callback=params.result_callback,

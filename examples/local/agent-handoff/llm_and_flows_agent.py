@@ -205,7 +205,7 @@ class ReservationAgent(FlowsAgent):
         logger.info(f"Agent '{self.name}': transferring to '{agent}' ({reason})")
         await self.handoff_to(
             agent,
-            args=LLMAgentActivationArgs(
+            activation_args=LLMAgentActivationArgs(
                 messages=[{"role": "developer", "content": reason}],
             ),
         )
@@ -241,7 +241,7 @@ class RouterAgent(LLMAgent):
         logger.info(f"Agent '{self.name}': transferring to '{agent}' ({reason})")
         await self.handoff_to(
             agent,
-            args=LLMAgentActivationArgs(
+            activation_args=LLMAgentActivationArgs(
                 messages=[{"role": "developer", "content": reason}],
             ),
             result_callback=params.result_callback,

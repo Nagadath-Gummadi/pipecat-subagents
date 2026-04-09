@@ -815,7 +815,7 @@ class BaseAgent(BaseObject, BusSubscriber):
         self,
         agent_name: str,
         *,
-        args: Optional[AgentActivationArgs] = None,
+        activation_args: Optional[AgentActivationArgs] = None,
     ) -> None:
         """Hand off to another agent.
 
@@ -824,12 +824,12 @@ class BaseAgent(BaseObject, BusSubscriber):
 
         Args:
             agent_name: The name of the agent to hand off to.
-            args: Optional arguments forwarded to the target agent's
-                ``on_activated`` handler.
+            activation_args: Optional arguments forwarded to the target
+                agent's ``on_activated`` handler.
         """
         if self._active:
             await self.deactivate_agent(self.name)
-        await self.activate_agent(agent_name, args=args)
+        await self.activate_agent(agent_name, args=activation_args)
 
     async def watch_agent(self, agent_name: str) -> None:
         """Request notification when an agent registers.
