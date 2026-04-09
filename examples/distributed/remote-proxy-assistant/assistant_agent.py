@@ -25,7 +25,6 @@ import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI, WebSocket
 from loguru import logger
-from pipecat.frames.frames import LLMMessagesAppendFrame
 from pipecat.services.llm_service import FunctionCallParams, LLMService
 from pipecat.services.openai.base_llm import OpenAILLMSettings
 from pipecat.services.openai.llm import OpenAILLMService
@@ -69,12 +68,11 @@ class AcmeAssistant(LLMAgent):
             reason (str): Why the conversation is ending.
         """
         logger.info(f"Agent '{self.name}': ending conversation ({reason})")
-        await params.llm.queue_frame(
-            LLMMessagesAppendFrame(
-                messages=[{"role": "developer", "content": reason}], run_llm=True
-            )
+        await self.end(
+            reason=reason,
+            messages=[{"role": "developer", "content": reason}],
+            result_callback=params.result_callback,
         )
-        await self.end(reason=reason, result_callback=params.result_callback)
 
 
 @app.websocket("/ws")
