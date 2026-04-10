@@ -152,7 +152,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     redis = Redis.from_url(runner_args.cli_args.redis_url)
     bus = RedisBus(redis=redis, channel=runner_args.cli_args.channel)
 
-    runner = AgentRunner(bus=bus, handle_sigint=True)
+    runner = AgentRunner(bus=bus, handle_sigint=runner_args.handle_sigint)
     main_agent = AcmeAgent("acme", bus=bus, transport=transport)
     await runner.add_agent(main_agent)
     await runner.run()
