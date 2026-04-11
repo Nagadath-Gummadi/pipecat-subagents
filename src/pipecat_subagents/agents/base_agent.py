@@ -1201,12 +1201,16 @@ class BaseAgent(BaseObject, BusSubscriber):
     async def _stop(self) -> None:
         """Clean up and signal that this agent has stopped.
 
-        Cancels all running task groups. Called by
-        ``on_pipeline_finished`` for pipeline agents, or by the
-        end/cancel handlers for pipeline-less agents.
+        Cancels all running task groups and reports any still-active
+        task requests back to their requesters as ``CANCELLED``, so
+        parents aren't left waiting. Called by ``on_pipeline_finished``
+        for pipeline agents, or by the end/cancel handlers for
+        pipeline-less agents.
         """
         for task_id in list(self._task_groups.keys()):
             await self.cancel_task(task_id, reason=f"agent '{self}' stopped")
+        for task_id in list(self._active_tasks.keys()):
+            await self.send_task_response(task_id, status=TaskStatus.CANCELLED)
         self._finished.set()
 
     async def _register_ready(self) -> None:
