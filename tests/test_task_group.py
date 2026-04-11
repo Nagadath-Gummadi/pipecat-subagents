@@ -46,7 +46,9 @@ class TaskWorkerAgent(BaseAgent):
 
     async def on_task_request(self, message):
         await super().on_task_request(message)
-        await self.send_task_response(self._auto_response, status=self._auto_status)
+        await self.send_task_response(
+            message.task_id, self._auto_response, status=self._auto_status
+        )
 
 
 class UrgentTaskWorkerAgent(BaseAgent):
@@ -62,7 +64,9 @@ class UrgentTaskWorkerAgent(BaseAgent):
 
     async def on_task_request(self, message):
         await super().on_task_request(message)
-        await self.send_task_response(self._auto_response, status=self._auto_status, urgent=True)
+        await self.send_task_response(
+            message.task_id, self._auto_response, status=self._auto_status, urgent=True
+        )
 
 
 class UpdatingWorkerAgent(BaseAgent):
@@ -79,8 +83,8 @@ class UpdatingWorkerAgent(BaseAgent):
     async def on_task_request(self, message):
         await super().on_task_request(message)
         for update in self._updates:
-            await self.send_task_update(update)
-        await self.send_task_response(self._auto_response)
+            await self.send_task_update(message.task_id, update)
+        await self.send_task_response(message.task_id, self._auto_response)
 
 
 class StreamingWorkerAgent(BaseAgent):
@@ -96,10 +100,10 @@ class StreamingWorkerAgent(BaseAgent):
 
     async def on_task_request(self, message):
         await super().on_task_request(message)
-        await self.send_task_stream_start({"content_type": "text"})
+        await self.send_task_stream_start(message.task_id, {"content_type": "text"})
         for chunk in self._chunks:
-            await self.send_task_stream_data(chunk)
-        await self.send_task_stream_end(self._auto_response)
+            await self.send_task_stream_data(message.task_id, chunk)
+        await self.send_task_stream_end(message.task_id, self._auto_response)
 
 
 async def create_test_env():

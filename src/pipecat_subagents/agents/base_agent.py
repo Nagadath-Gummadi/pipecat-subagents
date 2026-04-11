@@ -284,11 +284,12 @@ class BaseAgent(BaseObject, BusSubscriber):
         self._registry: Optional[AgentRegistry] = None
         self._task_manager: Optional[TaskManager] = None
 
-        # Task coordination. Worker state tracks the current task being
-        # worked on. Requester state tracks task groups launched by this agent.
-        # Task handlers are collected from @task decorated methods at init.
-        self._task_id: Optional[str] = None
-        self._task_requester: Optional[str] = None
+        # Task coordination. Worker state tracks active task requests
+        # keyed by task_id, supporting multiple tasks in flight
+        # (e.g. parallel @task handlers). Requester state tracks task
+        # groups launched by this agent. Task handlers are collected
+        # from @task decorated methods at init.
+        self._active_tasks: dict[str, BusTaskRequestMessage] = {}
         self._task_groups: dict[str, TaskGroup] = {}
         self._task_handlers = _collect_task_handlers(self)
 
@@ -364,9 +365,9 @@ class BaseAgent(BaseObject, BusSubscriber):
         return self._pipeline_task
 
     @property
-    def task_id(self) -> Optional[str]:
-        """The ID of the task this agent is currently working on."""
-        return self._task_id
+    def active_tasks(self) -> dict[str, BusTaskRequestMessage]:
+        """Active task requests this agent is currently working on, keyed by task_id."""
+        return self._active_tasks
 
     @property
     def task_groups(self) -> dict[str, TaskGroup]:
@@ -1056,6 +1057,7 @@ class BaseAgent(BaseObject, BusSubscriber):
 
     async def send_task_response(
         self,
+        task_id: str,
         response: Optional[dict] = None,
         *,
         status: TaskStatus = TaskStatus.COMPLETED,
@@ -1063,113 +1065,122 @@ class BaseAgent(BaseObject, BusSubscriber):
     ) -> None:
         """Send a task response back to the requester.
 
-        After sending, the agent is ready to accept a new task.
+        After sending, the task is removed from the set of active tasks.
 
         Args:
+            task_id: The identifier of the task being responded to.
             response: Optional result data.
             status: Completion status. Defaults to ``TaskStatus.COMPLETED``.
             urgent: When True, the response is delivered with system
                 priority, preempting queued data messages.
 
         Raises:
-            RuntimeError: If this agent has no active task.
+            RuntimeError: If there is no active task with this ``task_id``.
         """
-        if not self._task_id or not self._task_requester:
-            raise RuntimeError(f"Agent '{self}': no active task to respond to")
+        request = self._active_tasks.get(task_id)
+        if request is None:
+            raise RuntimeError(f"Agent '{self}': no active task '{task_id}' to respond to")
         msg_class = BusTaskResponseUrgentMessage if urgent else BusTaskResponseMessage
         await self.send_message(
             msg_class(
                 source=self.name,
-                target=self._task_requester,
-                task_id=self._task_id,
+                target=request.source,
+                task_id=task_id,
                 response=response,
                 status=status,
             )
         )
-        self._task_id = None
-        self._task_requester = None
+        self._active_tasks.pop(task_id, None)
 
     async def send_task_update(
-        self, update: Optional[dict] = None, *, urgent: bool = False
+        self, task_id: str, update: Optional[dict] = None, *, urgent: bool = False
     ) -> None:
         """Send a progress update to the requester.
 
         Args:
+            task_id: The identifier of the task being updated.
             update: Optional progress data.
             urgent: When True, the update is delivered with system
                 priority, preempting queued data messages.
 
         Raises:
-            RuntimeError: If this agent has no active task.
+            RuntimeError: If there is no active task with this ``task_id``.
         """
-        if not self._task_id or not self._task_requester:
-            raise RuntimeError(f"Agent '{self}': no active task to update")
+        request = self._active_tasks.get(task_id)
+        if request is None:
+            raise RuntimeError(f"Agent '{self}': no active task '{task_id}' to update")
         msg_class = BusTaskUpdateUrgentMessage if urgent else BusTaskUpdateMessage
         await self.send_message(
             msg_class(
                 source=self.name,
-                target=self._task_requester,
-                task_id=self._task_id,
+                target=request.source,
+                task_id=task_id,
                 update=update,
             )
         )
 
-    async def send_task_stream_start(self, data: Optional[dict] = None) -> None:
+    async def send_task_stream_start(self, task_id: str, data: Optional[dict] = None) -> None:
         """Begin streaming task results back to the requester.
 
         Args:
+            task_id: The identifier of the task being streamed.
             data: Optional metadata about the stream.
 
         Raises:
-            RuntimeError: If this agent has no active task.
+            RuntimeError: If there is no active task with this ``task_id``.
         """
-        if not self._task_id or not self._task_requester:
-            raise RuntimeError(f"Agent '{self}': no active task to stream")
+        request = self._active_tasks.get(task_id)
+        if request is None:
+            raise RuntimeError(f"Agent '{self}': no active task '{task_id}' to stream")
         await self.send_message(
             BusTaskStreamStartMessage(
                 source=self.name,
-                target=self._task_requester,
-                task_id=self._task_id,
+                target=request.source,
+                task_id=task_id,
                 data=data,
             )
         )
 
-    async def send_task_stream_data(self, data: Optional[dict] = None) -> None:
+    async def send_task_stream_data(self, task_id: str, data: Optional[dict] = None) -> None:
         """Send a streaming chunk to the requester.
 
         Args:
+            task_id: The identifier of the task being streamed.
             data: The chunk payload.
 
         Raises:
-            RuntimeError: If this agent has no active task.
+            RuntimeError: If there is no active task with this ``task_id``.
         """
-        if not self._task_id or not self._task_requester:
-            raise RuntimeError(f"Agent '{self}': no active task to stream")
+        request = self._active_tasks.get(task_id)
+        if request is None:
+            raise RuntimeError(f"Agent '{self}': no active task '{task_id}' to stream")
         await self.send_message(
             BusTaskStreamDataMessage(
                 source=self.name,
-                target=self._task_requester,
-                task_id=self._task_id,
+                target=request.source,
+                task_id=task_id,
                 data=data,
             )
         )
 
-    async def send_task_stream_end(self, data: Optional[dict] = None) -> None:
+    async def send_task_stream_end(self, task_id: str, data: Optional[dict] = None) -> None:
         """End the current stream and mark this agent's task as complete.
 
         Args:
+            task_id: The identifier of the task being streamed.
             data: Optional final metadata.
 
         Raises:
-            RuntimeError: If this agent has no active task.
+            RuntimeError: If there is no active task with this ``task_id``.
         """
-        if not self._task_id or not self._task_requester:
-            raise RuntimeError(f"Agent '{self}': no active task to stream")
+        request = self._active_tasks.get(task_id)
+        if request is None:
+            raise RuntimeError(f"Agent '{self}': no active task '{task_id}' to stream")
         await self.send_message(
             BusTaskStreamEndMessage(
                 source=self.name,
-                target=self._task_requester,
-                task_id=self._task_id,
+                target=request.source,
+                task_id=task_id,
                 data=data,
             )
         )
@@ -1429,8 +1440,7 @@ class BaseAgent(BaseObject, BusSubscriber):
         Dispatches to @task handlers if any match, otherwise falls back
         to on_task_request.
         """
-        self._task_id = message.task_id
-        self._task_requester = message.source
+        self._active_tasks[message.task_id] = message
 
         # Look for a named handler first, then the default handler
         handler_info = self._task_handlers.get(message.task_name)
@@ -1481,7 +1491,7 @@ class BaseAgent(BaseObject, BusSubscriber):
 
     async def _handle_task_update_request(self, message: BusTaskUpdateRequestMessage) -> None:
         """Handle a task update request from the requester."""
-        if self._task_id == message.task_id:
+        if message.task_id in self._active_tasks:
             await self.on_task_update_requested(message)
             await self._call_event_handler("on_task_update_requested", message)
 
@@ -1493,10 +1503,10 @@ class BaseAgent(BaseObject, BusSubscriber):
         The requester receives ``on_task_response`` with
         ``status="cancelled"``, same path as completed or failed tasks.
         """
-        if self._task_id == message.task_id:
+        if message.task_id in self._active_tasks:
             await self.on_task_cancelled(message)
             await self._call_event_handler("on_task_cancelled", message)
-            await self.send_task_response(status=TaskStatus.CANCELLED)
+            await self.send_task_response(message.task_id, status=TaskStatus.CANCELLED)
 
     async def _handle_task_stream_start(self, message: BusTaskStreamStartMessage) -> None:
         """Handle the start of a streaming task response."""

@@ -933,7 +933,7 @@ class TestTaskLifecycle(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(received[0].task_id, "t1")
         self.assertEqual(received[0].source, "parent")
         self.assertEqual(received[0].payload, {"x": 1})
-        self.assertEqual(agent.task_id, "t1")
+        self.assertIn("t1", agent.active_tasks)
 
     async def test_send_task_response(self):
         """send_task_response() sends BusTaskResponseMessage to requester."""
@@ -946,7 +946,7 @@ class TestTaskLifecycle(unittest.IsolatedAsyncioTestCase):
             BusTaskRequestMessage(source="parent", target="worker", task_id="t1")
         )
 
-        await agent.send_task_response({"result": 42})
+        await agent.send_task_response("t1", {"result": 42})
 
         response_msgs = [m for m in sent if isinstance(m, BusTaskResponseMessage)]
         self.assertEqual(len(response_msgs), 1)
@@ -965,7 +965,7 @@ class TestTaskLifecycle(unittest.IsolatedAsyncioTestCase):
             BusTaskRequestMessage(source="parent", target="worker", task_id="t1")
         )
 
-        await agent.send_task_update({"progress": 50})
+        await agent.send_task_update("t1", {"progress": 50})
 
         update_msgs = [m for m in sent if isinstance(m, BusTaskUpdateMessage)]
         self.assertEqual(len(update_msgs), 1)
@@ -1040,20 +1040,20 @@ class TestTaskLifecycle(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(m.reason, "no longer needed")
 
     async def test_send_task_response_raises_without_active_task(self):
-        """send_task_response raises RuntimeError when no active task."""
+        """send_task_response raises RuntimeError when task_id is unknown."""
         bus = self.bus
         agent = StubAgent("worker", bus=bus)
 
         with self.assertRaises(RuntimeError):
-            await agent.send_task_response({"result": 1})
+            await agent.send_task_response("unknown", {"result": 1})
 
     async def test_send_task_update_raises_without_active_task(self):
-        """send_task_update raises RuntimeError when no active task."""
+        """send_task_update raises RuntimeError when task_id is unknown."""
         bus = self.bus
         agent = StubAgent("worker", bus=bus)
 
         with self.assertRaises(RuntimeError):
-            await agent.send_task_update({"progress": 50})
+            await agent.send_task_update("unknown", {"progress": 50})
 
     async def test_cancel_auto_sends_cancelled_response(self):
         """BusTaskCancelMessage auto-sends a cancelled response and clears state."""
@@ -1064,13 +1064,13 @@ class TestTaskLifecycle(unittest.IsolatedAsyncioTestCase):
         await agent.on_bus_message(
             BusTaskRequestMessage(source="parent", target="worker", task_id="t1")
         )
-        self.assertEqual(agent.task_id, "t1")
+        self.assertIn("t1", agent.active_tasks)
 
         # Cancel should auto-send response (via send_task_response) and clear state
         await agent.on_bus_message(
             BusTaskCancelMessage(source="parent", target="worker", task_id="t1")
         )
-        self.assertIsNone(agent.task_id)
+        self.assertNotIn("t1", agent.active_tasks)
 
     async def test_on_task_cancelled_fires(self):
         """BusTaskCancelMessage triggers on_task_cancelled with the message."""
@@ -1107,7 +1107,7 @@ class TestTaskLifecycle(unittest.IsolatedAsyncioTestCase):
             BusTaskRequestMessage(source="parent", target="worker", task_id="t1")
         )
 
-        await agent.send_task_stream_start({"content_type": "text"})
+        await agent.send_task_stream_start("t1", {"content_type": "text"})
 
         msgs = [m for m in sent if isinstance(m, BusTaskStreamStartMessage)]
         self.assertEqual(len(msgs), 1)
@@ -1125,7 +1125,7 @@ class TestTaskLifecycle(unittest.IsolatedAsyncioTestCase):
             BusTaskRequestMessage(source="parent", target="worker", task_id="t1")
         )
 
-        await agent.send_task_stream_data({"text": "hello "})
+        await agent.send_task_stream_data("t1", {"text": "hello "})
 
         msgs = [m for m in sent if isinstance(m, BusTaskStreamDataMessage)]
         self.assertEqual(len(msgs), 1)
@@ -1143,7 +1143,7 @@ class TestTaskLifecycle(unittest.IsolatedAsyncioTestCase):
             BusTaskRequestMessage(source="parent", target="worker", task_id="t1")
         )
 
-        await agent.send_task_stream_end({"final": True})
+        await agent.send_task_stream_end("t1", {"final": True})
 
         msgs = [m for m in sent if isinstance(m, BusTaskStreamEndMessage)]
         self.assertEqual(len(msgs), 1)
@@ -1188,18 +1188,18 @@ class TestTaskLifecycle(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(completed[0].responses, {"w1": {"result": "a"}, "w2": {"result": "b"}})
 
     async def test_send_task_stream_raises_without_active_task(self):
-        """All stream helpers raise RuntimeError when no active task."""
+        """All stream helpers raise RuntimeError when task_id is unknown."""
         bus = self.bus
         agent = StubAgent("worker", bus=bus)
 
         with self.assertRaises(RuntimeError):
-            await agent.send_task_stream_start()
+            await agent.send_task_stream_start("unknown")
 
         with self.assertRaises(RuntimeError):
-            await agent.send_task_stream_data()
+            await agent.send_task_stream_data("unknown")
 
         with self.assertRaises(RuntimeError):
-            await agent.send_task_stream_end()
+            await agent.send_task_stream_end("unknown")
 
     async def test_request_task_timeout_cancels_task(self):
         """Short timeout triggers BusTaskCancelMessage with reason 'timeout'."""
