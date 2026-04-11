@@ -97,6 +97,7 @@ class DebateWorker(LLMAgent):
     def __init__(self, name: str, *, bus: AgentBus, role: str):
         super().__init__(name, bus=bus)
         self._role = role
+        self._current_task_id: str = ""
 
     def build_llm(self) -> LLMService:
         return OpenAILLMService(
@@ -114,12 +115,16 @@ class DebateWorker(LLMAgent):
         async def on_assistant_turn_stopped(aggregator, message: AssistantTurnStoppedMessage):
             text = message.content
             logger.info(f"Worker '{self.name}': completed ({len(text)} chars)")
-            await self.send_task_response({"role": self._role, "text": text})
+            if self._current_task_id:
+                task_id = self._current_task_id
+                await self.send_task_response(task_id, {"role": self._role, "text": text})
+                self._current_task_id = ""
 
         return Pipeline([user_agg, llm, assistant_agg])
 
     async def on_task_request(self, message: BusTaskRequestMessage) -> None:
         await super().on_task_request(message)
+        self._current_task_id = message.task_id
         await self.queue_frame(
             LLMMessagesAppendFrame(
                 messages=[{"role": "developer", "content": f"Topic: {message.payload['topic']}"}],

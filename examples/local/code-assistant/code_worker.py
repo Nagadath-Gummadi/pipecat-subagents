@@ -36,7 +36,7 @@ class CodeWorker(BaseAgent):
         super().__init__(name, bus=bus)
         self._project_path = project_path
 
-        self._queue: asyncio.Queue[str] = asyncio.Queue()
+        self._queue: asyncio.Queue = asyncio.Queue()
         self._worker_task: Optional[asyncio.Task] = None
 
         self._claude_options = ClaudeAgentOptions(
@@ -66,15 +66,15 @@ class CodeWorker(BaseAgent):
 
     async def on_task_request(self, message):
         await super().on_task_request(message)
-        question = message.payload["question"]
-        logger.info(f"Worker '{self.name}': queued '{question}'")
-        self._queue.put_nowait(question)
+        logger.info(f"Worker '{self.name}': queued '{message.payload['question']}'")
+        self._queue.put_nowait(message)
 
     async def _worker_loop(self):
         try:
             async with ClaudeSDKClient(options=self._claude_options) as client:
                 while True:
-                    question = await self._queue.get()
+                    message = await self._queue.get()
+                    question = message.payload["question"]
                     logger.info(f"Worker '{self.name}': researching '{question}'")
 
                     try:
@@ -87,10 +87,12 @@ class CodeWorker(BaseAgent):
                                         answer += block.text
 
                         logger.info(f"Worker '{self.name}': completed ({len(answer)} chars)")
-                        await self.send_task_response({"answer": answer})
+                        await self.send_task_response(message.task_id, {"answer": answer})
 
                     except Exception as e:
                         logger.error(f"Worker '{self.name}': error: {e}")
-                        await self.send_task_response({"error": str(e)}, status=TaskStatus.ERROR)
+                        await self.send_task_response(
+                            message.task_id, {"error": str(e)}, status=TaskStatus.ERROR
+                        )
         except Exception as e:
             logger.error(f"Worker '{self.name}': failed to start Claude SDK: {e}")
