@@ -641,6 +641,89 @@ class TestTaskContext(unittest.IsolatedAsyncioTestCase):
             self.assertIsInstance(t.task_id, str)
             self.assertTrue(len(t.task_id) > 0)
 
+    async def test_task_group_cancels_on_cancelled_error(self):
+        """task_group() cancels workers when CancelledError is raised (e.g. tool interruption)."""
+        sent = capture_bus(self.bus)
+
+        parent = StubAgent("parent", bus=self.bus)
+        parent.set_task_manager(self.tm)
+        await setup_agent(self.bus, self.registry, parent)
+
+        worker = StubAgent("worker", bus=self.bus)
+        await setup_agent(self.bus, self.registry, worker)
+
+        async def run_task_group():
+            async with parent.task_group("worker") as tg:
+                # Simulate tool cancellation while waiting
+                raise asyncio.CancelledError()
+
+        task = asyncio.create_task(run_task_group())
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+
+        cancel_msgs = [m for m in sent if isinstance(m, BusTaskCancelMessage)]
+        self.assertEqual(len(cancel_msgs), 1)
+        self.assertEqual(cancel_msgs[0].reason, "context exited with error")
+        # Task group should be cleaned up
+        self.assertEqual(len(parent.task_groups), 0)
+
+    async def test_task_cancels_on_cancelled_error(self):
+        """task() cancels the worker when CancelledError is raised (e.g. tool interruption)."""
+        sent = capture_bus(self.bus)
+
+        parent = StubAgent("parent", bus=self.bus)
+        parent.set_task_manager(self.tm)
+        await setup_agent(self.bus, self.registry, parent)
+
+        worker = StubAgent("worker", bus=self.bus)
+        await setup_agent(self.bus, self.registry, worker)
+
+        async def run_task():
+            async with parent.task("worker") as t:
+                raise asyncio.CancelledError()
+
+        task = asyncio.create_task(run_task())
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+
+        cancel_msgs = [m for m in sent if isinstance(m, BusTaskCancelMessage)]
+        self.assertEqual(len(cancel_msgs), 1)
+        self.assertEqual(cancel_msgs[0].reason, "context exited with error")
+        self.assertEqual(len(parent.task_groups), 0)
+
+    async def test_fire_and_forget_tasks_cancelled_manually(self):
+        """User cancels fire-and-forget tasks in a CancelledError handler."""
+        sent = capture_bus(self.bus)
+
+        parent = StubAgent("parent", bus=self.bus)
+        parent.set_task_manager(self.tm)
+        await setup_agent(self.bus, self.registry, parent)
+
+        w1 = StubAgent("w1", bus=self.bus)
+        w2 = StubAgent("w2", bus=self.bus)
+        await setup_agent(self.bus, self.registry, w1)
+        await setup_agent(self.bus, self.registry, w2)
+
+        # Simulate what a user would do in on_function_calls_cancelled:
+        # track task IDs and cancel only the ones started here
+        try:
+            task_ids = []
+            task_ids.append(await parent.request_task("w1", payload={"job": 1}))
+            task_ids.append(await parent.request_task("w2", payload={"job": 2}))
+            self.assertEqual(len(parent.task_groups), 2)
+            raise asyncio.CancelledError()
+        except asyncio.CancelledError:
+            for tid in task_ids:
+                await parent.cancel_task(tid, reason="tool cancelled")
+
+        cancel_msgs = [m for m in sent if isinstance(m, BusTaskCancelMessage)]
+        self.assertEqual(len(cancel_msgs), 2)
+        cancelled_targets = {m.target for m in cancel_msgs}
+        self.assertEqual(cancelled_targets, {"w1", "w2"})
+        for m in cancel_msgs:
+            self.assertEqual(m.reason, "tool cancelled")
+        self.assertEqual(len(parent.task_groups), 0)
+
 
 if __name__ == "__main__":
     unittest.main()
