@@ -106,4 +106,6 @@ We aim to review all contributions promptly and provide constructive feedback to
 
 ➡️ [Join our Discord](https://discord.gg/pipecat)
 
+➡️ [Read the docs](https://docs.pipecat.ai/subagents/introduction)
+
 ➡️ [Reach us on X](https://x.com/pipecat_ai)
