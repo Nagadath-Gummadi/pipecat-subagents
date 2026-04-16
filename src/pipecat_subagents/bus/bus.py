@@ -68,8 +68,7 @@ class AgentBus(BaseObject):
             **kwargs: Additional arguments passed to `BaseObject`.
         """
         super().__init__(**kwargs)
-        self._subscriptions: list[BusSubscription] = []
-        self._subscriptions_lock = asyncio.Lock()
+        self._subscriptions: dict[str, BusSubscription] = {}
         self._running = False
         self._task_manager: Optional[TaskManager] = None
 
@@ -118,28 +117,26 @@ class AgentBus(BaseObject):
 
     async def start(self):
         """Start dispatch tasks for all registered subscribers."""
-        async with self._subscriptions_lock:
-            if self._running:
-                return
-            self._running = True
-            for sub in self._subscriptions:
-                self._start_dispatch_task(sub)
-            # Schedule tasks right away.
-            await asyncio.sleep(0)
+        if self._running:
+            return
+        self._running = True
+        for sub in self._subscriptions.values():
+            self._start_dispatch_task(sub)
+        # Schedule tasks right away.
+        await asyncio.sleep(0)
 
     async def stop(self):
         """Stop all dispatch tasks."""
-        async with self._subscriptions_lock:
-            if not self._running:
-                return
-            self._running = False
-            for sub in self._subscriptions:
-                if sub.router_task:
-                    await self.cancel_asyncio_task(sub.router_task)
-                    sub.router_task = None
-                if sub.data_task:
-                    await self.cancel_asyncio_task(sub.data_task)
-                    sub.data_task = None
+        if not self._running:
+            return
+        self._running = False
+        for sub in self._subscriptions.values():
+            if sub.router_task:
+                await self.cancel_asyncio_task(sub.router_task)
+                sub.router_task = None
+            if sub.data_task:
+                await self.cancel_asyncio_task(sub.data_task)
+                sub.data_task = None
 
     async def subscribe(self, subscriber: BusSubscriber) -> None:
         """Register a subscriber to receive messages from the bus.
@@ -147,13 +144,14 @@ class AgentBus(BaseObject):
         Args:
             subscriber: The `BusSubscriber` to register.
         """
-        async with self._subscriptions_lock:
-            sub = BusSubscription(subscriber=subscriber)
-            if self._running:
-                self._start_dispatch_task(sub)
-                # Schedule task right away.
-                await asyncio.sleep(0)
-            self._subscriptions.append(sub)
+        sub = BusSubscription(subscriber=subscriber)
+        if self._running:
+            self._start_dispatch_task(sub)
+            # Schedule task right away.
+            await asyncio.sleep(0)
+        if subscriber.name in self._subscriptions:
+            raise ValueError(f"Subscriber '{subscriber.name}' is already registered on the bus")
+        self._subscriptions[subscriber.name] = sub
 
     async def unsubscribe(self, subscriber: BusSubscriber) -> None:
         """Remove a subscriber and cancel its dispatch tasks.
@@ -161,15 +159,12 @@ class AgentBus(BaseObject):
         Args:
             subscriber: The `BusSubscriber` to remove.
         """
-        async with self._subscriptions_lock:
-            for i, sub in enumerate(self._subscriptions):
-                if sub.subscriber is subscriber:
-                    if sub.router_task:
-                        await self.cancel_asyncio_task(sub.router_task)
-                    if sub.data_task:
-                        await self.cancel_asyncio_task(sub.data_task)
-                    self._subscriptions.pop(i)
-                    return
+        sub = self._subscriptions.pop(subscriber.name, None)
+        if sub:
+            if sub.router_task:
+                await self.cancel_asyncio_task(sub.router_task)
+            if sub.data_task:
+                await self.cancel_asyncio_task(sub.data_task)
 
     async def send(self, message: BusMessage) -> None:
         """Send a message through the bus.
@@ -203,7 +198,7 @@ class AgentBus(BaseObject):
         Called by bus implementations when a message arrives (either from
         a local ``send()`` or from a network transport).
         """
-        for sub in self._subscriptions:
+        for sub in self._subscriptions.values():
             sub.queue.put_nowait(message)
 
     def _start_dispatch_task(self, sub: BusSubscription) -> None:

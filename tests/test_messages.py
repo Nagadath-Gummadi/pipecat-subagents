@@ -41,10 +41,18 @@ class TestBusMessageRouting(unittest.IsolatedAsyncioTestCase):
         received_b = []
 
         class SubA(BusSubscriber):
+            @property
+            def name(self) -> str:
+                return "sub_a"
+
             async def on_bus_message(self, message):
                 received_a.append(message)
 
         class SubB(BusSubscriber):
+            @property
+            def name(self) -> str:
+                return "sub_b"
+
             async def on_bus_message(self, message):
                 received_b.append(message)
 

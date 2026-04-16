@@ -13,7 +13,14 @@ class BusSubscriber:
     """Mixin for objects that receive messages from an `AgentBus`.
 
     Implementors override `on_bus_message()` to handle incoming messages.
+    Concrete subscribers must provide a ``name`` property (typically
+    inherited from ``BaseObject``).
     """
+
+    @property
+    def name(self) -> str:
+        """Unique name identifying this subscriber on the bus."""
+        raise NotImplementedError
 
     async def on_bus_message(self, message: BusMessage) -> None:
         """Handle an incoming bus message.
