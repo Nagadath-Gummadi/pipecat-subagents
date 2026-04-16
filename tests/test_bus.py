@@ -5,6 +5,7 @@
 #
 
 import asyncio
+import itertools
 import unittest
 
 from pipecat.utils.asyncio.task_manager import TaskManager, TaskManagerParams
@@ -31,8 +32,15 @@ def create_test_bus():
 class _CollectorSub(BusSubscriber):
     """Subscriber that collects messages into a list."""
 
+    _counter = itertools.count()
+
     def __init__(self):
+        self._name = f"collector_{next(self._counter)}"
         self.received = []
+
+    @property
+    def name(self) -> str:
+        return self._name
 
     async def on_bus_message(self, message):
         self.received.append(message)
@@ -150,10 +158,18 @@ class TestBusSubscriber(unittest.IsolatedAsyncioTestCase):
         fast_done = asyncio.Event()
 
         class SlowSub(BusSubscriber):
+            @property
+            def name(self) -> str:
+                return "slow"
+
             async def on_bus_message(self, message):
                 await asyncio.sleep(0.5)
 
         class FastSub(BusSubscriber):
+            @property
+            def name(self) -> str:
+                return "fast"
+
             async def on_bus_message(self, message):
                 fast_received.append(message)
                 fast_done.set()

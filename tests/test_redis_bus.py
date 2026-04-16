@@ -5,6 +5,7 @@
 #
 
 import asyncio
+import itertools
 import unittest
 
 from pipecat.frames.frames import TextFrame
@@ -16,12 +17,28 @@ from pipecat_subagents.bus import (
     BusDataMessage,
     BusEndMessage,
     BusFrameMessage,
-    BusMessage,
     BusSubscriber,
     BusTaskRequestMessage,
 )
 from pipecat_subagents.bus.network.redis import RedisBus
 from pipecat_subagents.bus.serializers import JSONMessageSerializer
+
+_sub_counter = itertools.count()
+
+
+def _make_sub(received: list) -> BusSubscriber:
+    """Create a BusSubscriber that appends messages to the given list."""
+    sub_name = f"test_sub_{next(_sub_counter)}"
+
+    class _Sub(BusSubscriber):
+        @property
+        def name(self) -> str:
+            return sub_name
+
+        async def on_bus_message(self, message):
+            received.append(message)
+
+    return _Sub()
 
 
 class FakePubSub:
@@ -118,12 +135,7 @@ class TestRedisBus(unittest.IsolatedAsyncioTestCase):
                 return Pipeline([IdentityFilter()])
 
         received = []
-
-        class MySub(BusSubscriber):
-            async def on_bus_message(self, message):
-                received.append(message)
-
-        await self.bus.subscribe(MySub())
+        await self.bus.subscribe(_make_sub(received))
         await self.bus.start()
 
         agent = StubAgent("test", bus=self.bus)
@@ -143,12 +155,7 @@ class TestRedisBus(unittest.IsolatedAsyncioTestCase):
     async def test_round_trip_via_subscriber(self):
         """Messages published are received by subscribers."""
         received = []
-
-        class MySub(BusSubscriber):
-            async def on_bus_message(self, message):
-                received.append(message)
-
-        await self.bus.subscribe(MySub())
+        await self.bus.subscribe(_make_sub(received))
         await self.bus.start()
 
         msg = BusEndMessage(source="agent_a", reason="done")
@@ -167,17 +174,8 @@ class TestRedisBus(unittest.IsolatedAsyncioTestCase):
         """Multiple subscribers each receive every message."""
         received_a = []
         received_b = []
-
-        class SubA(BusSubscriber):
-            async def on_bus_message(self, message):
-                received_a.append(message)
-
-        class SubB(BusSubscriber):
-            async def on_bus_message(self, message):
-                received_b.append(message)
-
-        await self.bus.subscribe(SubA())
-        await self.bus.subscribe(SubB())
+        await self.bus.subscribe(_make_sub(received_a))
+        await self.bus.subscribe(_make_sub(received_b))
         await self.bus.start()
 
         msg = BusDataMessage(source="x")
@@ -192,12 +190,7 @@ class TestRedisBus(unittest.IsolatedAsyncioTestCase):
     async def test_frame_message_round_trip(self):
         """BusFrameMessage with a frame adapter round-trips through Redis."""
         received = []
-
-        class MySub(BusSubscriber):
-            async def on_bus_message(self, message):
-                received.append(message)
-
-        await self.bus.subscribe(MySub())
+        await self.bus.subscribe(_make_sub(received))
         await self.bus.start()
 
         msg = BusFrameMessage(
@@ -220,12 +213,7 @@ class TestRedisBus(unittest.IsolatedAsyncioTestCase):
     async def test_task_request_round_trip(self):
         """BusTaskRequestMessage round-trips through Redis."""
         received = []
-
-        class MySub(BusSubscriber):
-            async def on_bus_message(self, message):
-                received.append(message)
-
-        await self.bus.subscribe(MySub())
+        await self.bus.subscribe(_make_sub(received))
         await self.bus.start()
 
         msg = BusTaskRequestMessage(
