@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- towncrier release notes start -->
 
+## [0.3.0] - 2026-04-16
+
+### Added
+
+- Added a `ready` property to `BaseAgent` that indicates whether the agent's
+  pipeline has started and is ready to operate.
+  (PR [#13](https://github.com/pipecat-ai/pipecat-subagents/pull/13))
+
+### Changed
+
+- ⚠️ `BusSubscriber` now requires a `name: str` attribute. All built-in
+  subscribers already inherit this from `BaseObject`; custom implementations
+  that extend `BusSubscriber` directly must provide one.
+  (PR [#12](https://github.com/pipecat-ai/pipecat-subagents/pull/12))
+
+### Fixed
+
+- Fixed an `IndexError: pop index out of range` in `AgentBus.unsubscribe`
+  caused by concurrent unsubscriptions. Subscriptions are now stored in a dict
+  keyed by subscriber name instead of a list.
+  (PR [#12](https://github.com/pipecat-ai/pipecat-subagents/pull/12))
+
+### Other
+
+- Modernized type annotations across all source files for Python 3.11+:
+  `Optional[X]` replaced with `X | None`, `Callable`/`Coroutine` imported from
+  `collections.abc`, and `isinstance` checks use tuple form instead of union
+  operator.
+  (PR [#14](https://github.com/pipecat-ai/pipecat-subagents/pull/14))
+
 ## [0.2.1] - 2026-04-15
 
 ### Changed
