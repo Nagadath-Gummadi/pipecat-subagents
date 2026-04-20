@@ -99,7 +99,8 @@ Task completion does NOT end the agent's pipeline; agents stay alive for reuse.
 - `send_task_update(task_id, update)` sends progress without completing
 - `send_task_stream_start/data/end(task_id, data)` for streaming results
 - `active_tasks` property returns `dict[str, BusTaskRequestMessage]` of in-flight tasks
-- Multiple tasks can be in flight simultaneously (e.g. `@task(parallel=True)`)
+- Task handlers always run in their own asyncio task so the bus message loop is never blocked
+- Multiple tasks can be in flight simultaneously
 - When the agent stops, any still-active tasks are automatically reported as `CANCELLED`
 
 ### Task cancellation
