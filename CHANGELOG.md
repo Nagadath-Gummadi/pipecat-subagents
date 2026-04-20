@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   handlers now always run in their own asyncio task so the bus message loop is
   never blocked. Remove `parallel=True` or `parallel=False` from existing
   `@task` decorators.
-(PR [#16](https://github.com/pipecat-ai/pipecat-subagents/pull/16))
+  (PR [#16](https://github.com/pipecat-ai/pipecat-subagents/pull/16))
 
 ## [0.3.0] - 2026-04-16
 
