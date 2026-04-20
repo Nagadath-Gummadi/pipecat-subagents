@@ -1461,32 +1461,23 @@ class BaseAgent(BaseObject, BusSubscriber):
         """Handle an incoming task request.
 
         Dispatches to @task handlers if any match, otherwise falls back
-        to on_task_request. The handler always runs in a tracked asyncio
-        task so it can be cancelled by system messages (e.g. task cancel).
+        to on_task_request. The handler always runs in its own asyncio
+        task so the bus message loop is never blocked.
         """
         self._active_tasks[message.task_id] = message
 
         # Look for a named handler first, then the default handler
-        handler_info = self._task_handlers.get(message.task_name)
-        if handler_info is None and message.task_name is not None:
-            handler_info = self._task_handlers.get(None)
-
-        if handler_info:
-            handler, is_parallel = handler_info
-        else:
-            handler, is_parallel = self.on_task_request, False
+        handler = self._task_handlers.get(message.task_name)
+        if handler is None and message.task_name is not None:
+            handler = self._task_handlers.get(None)
+        if handler is None:
+            handler = self.on_task_request
 
         task = self.create_asyncio_task(
             self._run_task_handler(message.task_id, handler, message),
             f"{self.name}::task_{message.task_name or 'default'}",
         )
         self._task_handler_tasks[message.task_id] = task
-
-        if not is_parallel:
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
 
         await self._call_event_handler("on_task_request", message)
 
