@@ -51,7 +51,14 @@ from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.transports.base_transport import BaseTransport, TransportParams
 from pipecat.transports.daily.transport import DailyParams
 
-from pipecat_subagents.agents import BaseAgent, LLMAgent, LLMAgentActivationArgs, agent_ready, tool
+from pipecat_subagents.agents import (
+    BaseAgent,
+    LLMAgent,
+    LLMAgentActivationArgs,
+    LLMContextAgent,
+    agent_ready,
+    tool,
+)
 from pipecat_subagents.bus import AgentBus, BusBridgeProcessor
 from pipecat_subagents.bus.messages import BusTaskRequestMessage
 from pipecat_subagents.runner import AgentRunner
@@ -87,7 +94,7 @@ ROLE_PROMPTS = {
 }
 
 
-class DebateWorker(LLMAgent):
+class DebateWorker(LLMContextAgent):
     """Worker that generates a perspective using its own LLM pipeline.
 
     Each worker keeps its own LLMContext, so it remembers previous topics
@@ -105,13 +112,10 @@ class DebateWorker(LLMAgent):
             settings=OpenAILLMSettings(system_instruction=ROLE_PROMPTS[self._role]),
         )
 
-    async def build_pipeline(self) -> Pipeline:
-        llm = self.build_llm()
+    async def on_ready(self) -> None:
+        await super().on_ready()
 
-        context = LLMContext()
-        user_agg, assistant_agg = LLMContextAggregatorPair(context)
-
-        @assistant_agg.event_handler("on_assistant_turn_stopped")
+        @self.assistant_aggregator.event_handler("on_assistant_turn_stopped")
         async def on_assistant_turn_stopped(aggregator, message: AssistantTurnStoppedMessage):
             text = message.content
             logger.info(f"Worker '{self.name}': completed ({len(text)} chars)")
@@ -119,8 +123,6 @@ class DebateWorker(LLMAgent):
                 task_id = self._current_task_id
                 await self.send_task_response(task_id, {"role": self._role, "text": text})
                 self._current_task_id = ""
-
-        return Pipeline([user_agg, llm, assistant_agg])
 
     async def on_task_request(self, message: BusTaskRequestMessage) -> None:
         await super().on_task_request(message)
