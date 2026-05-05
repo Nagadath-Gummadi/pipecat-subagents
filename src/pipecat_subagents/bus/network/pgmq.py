@@ -21,7 +21,7 @@ from pipecat_subagents.bus.serializers.base import MessageSerializer
 
 try:
     from pgmq.async_queue import PGMQueue
-except ModuleNotFoundError as e:
+except ModuleNotFoundError as e:  # pragma: no cover - exercised only when extra is missing
     logger.error(f"Exception: {e}")
     logger.error("In order to use PgmqBus, you need to `pip install pipecat-ai-subagents[pgmq]`.")
     raise Exception(f"Missing module: {e}")

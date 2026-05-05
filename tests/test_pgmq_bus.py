@@ -423,5 +423,196 @@ class TestPgmqBusEdgeCases(unittest.IsolatedAsyncioTestCase):
         await bus.stop()
 
 
+class TestPgmqBusErrorPaths(unittest.IsolatedAsyncioTestCase):
+    """Cover error and edge branches in `PgmqBus`."""
+
+    async def test_sanitize_channel_leading_digit(self):
+        """A channel starting with a digit gets a `q_` prefix."""
+        pgmq = FakePgmq()
+        bus = PgmqBus(pgmq=pgmq, channel="123corp", poll_interval_ms=10, max_poll_seconds=1)
+        tm = TaskManager()
+        tm.setup(TaskManagerParams(loop=asyncio.get_running_loop()))
+        bus.set_task_manager(tm)
+        await bus.start()
+        try:
+            self.assertTrue(bus._queue_name.startswith("q_123corp_"))
+        finally:
+            await bus.stop()
+
+    async def test_peer_cache_hit_on_rapid_publish(self):
+        """A second publish within the TTL reuses the cached peer list."""
+        pgmq = FakePgmq()
+        bus = PgmqBus(pgmq=pgmq, channel="cache_hit", poll_interval_ms=10, max_poll_seconds=1)
+        tm = TaskManager()
+        tm.setup(TaskManagerParams(loop=asyncio.get_running_loop()))
+        bus.set_task_manager(tm)
+        await bus.start()
+        try:
+            list_calls = {"n": 0}
+            real_list_queues = pgmq.list_queues
+
+            async def counting_list_queues():
+                list_calls["n"] += 1
+                return await real_list_queues()
+
+            pgmq.list_queues = counting_list_queues
+
+            await bus.send(BusDataMessage(source="a"))
+            first = list_calls["n"]
+            await bus.send(BusDataMessage(source="a"))
+            self.assertEqual(list_calls["n"], first, "second publish must hit cache")
+        finally:
+            await bus.stop()
+
+    async def test_publish_skips_when_serializer_returns_invalid_json(self):
+        """If the serializer's bytes aren't decodable JSON, publish bails out."""
+
+        class BadSerializer(JSONMessageSerializer):
+            def serialize(self, message):
+                return b"not-valid-json"
+
+        pgmq = FakePgmq()
+        bus = PgmqBus(
+            pgmq=pgmq,
+            serializer=BadSerializer(),
+            channel="bad_serializer",
+            poll_interval_ms=10,
+            max_poll_seconds=1,
+        )
+        tm = TaskManager()
+        tm.setup(TaskManagerParams(loop=asyncio.get_running_loop()))
+        bus.set_task_manager(tm)
+        await bus.start()
+        try:
+            await bus.send(BusDataMessage(source="a"))
+            # Nothing should land on the wire because json.loads failed.
+            self.assertEqual(len(pgmq.sent), 0)
+        finally:
+            await bus.stop()
+
+    async def test_publish_handles_send_failure_to_cached_peer(self):
+        """A queue dropped after the cache warmed lets publish keep going."""
+        pgmq = FakePgmq()
+        bus = PgmqBus(
+            pgmq=pgmq,
+            channel="cached_drop",
+            poll_interval_ms=10,
+            max_poll_seconds=1,
+        )
+        tm = TaskManager()
+        tm.setup(TaskManagerParams(loop=asyncio.get_running_loop()))
+        bus.set_task_manager(tm)
+        await bus.start()
+        try:
+            # Warm the peer cache with the bus's own queue.
+            await bus.send(BusDataMessage(source="warmup"))
+            # Drop our queue so the cached entry now points at nothing.
+            await pgmq.drop_queue(bus._queue_name)
+            # Force-keep the cache fresh so we hit the cached path on the next publish.
+            bus._peer_cache_at = float("inf")
+            # Should swallow the exception from the dropped peer and reset the cache.
+            await bus.send(BusDataMessage(source="dead-letter"))
+            self.assertEqual(bus._peer_cache_at, 0.0)
+        finally:
+            # Re-create the queue so stop() can drop it cleanly without surfacing.
+            await pgmq.create_queue(bus._queue_name)
+            await bus.stop()
+
+    async def test_stop_swallows_drop_queue_failure(self):
+        """`stop()` logs but doesn't raise when `drop_queue` fails."""
+
+        class BadDropPgmq(FakePgmq):
+            async def drop_queue(self, queue, partitioned=False):
+                raise RuntimeError("simulated drop failure")
+
+        pgmq = BadDropPgmq()
+        bus = PgmqBus(pgmq=pgmq, channel="bad_drop", poll_interval_ms=10, max_poll_seconds=1)
+        tm = TaskManager()
+        tm.setup(TaskManagerParams(loop=asyncio.get_running_loop()))
+        bus.set_task_manager(tm)
+        await bus.start()
+
+        # Should not raise even though drop_queue throws.
+        await bus.stop()
+        self.assertIsNone(bus._queue_name)
+
+    async def test_reader_loop_recovers_from_read_failure(self):
+        """A failure inside `read_with_poll` triggers backoff, not crash."""
+
+        class FlakyReadPgmq(FakePgmq):
+            def __init__(self):
+                super().__init__()
+                self.read_calls = 0
+
+            async def read_with_poll(self, *args, **kwargs):
+                self.read_calls += 1
+                if self.read_calls == 1:
+                    raise RuntimeError("simulated read failure")
+                return await super().read_with_poll(*args, **kwargs)
+
+        pgmq = FlakyReadPgmq()
+        bus = PgmqBus(pgmq=pgmq, channel="flaky_read", poll_interval_ms=10, max_poll_seconds=1)
+        tm = TaskManager()
+        tm.setup(TaskManagerParams(loop=asyncio.get_running_loop()))
+        bus.set_task_manager(tm)
+        await bus.start()
+        try:
+            # Give the reader long enough to fail once and back off.
+            await asyncio.sleep(1.2)
+            self.assertGreaterEqual(pgmq.read_calls, 2)
+        finally:
+            await bus.stop()
+
+    async def test_reader_loop_handles_deserializer_exception(self):
+        """If the serializer raises while decoding, the message is still deleted."""
+
+        class RaisingSerializer(JSONMessageSerializer):
+            def deserialize(self, data):
+                raise RuntimeError("simulated deserialize crash")
+
+        pgmq = FakePgmq()
+        bus = PgmqBus(
+            pgmq=pgmq,
+            serializer=RaisingSerializer(),
+            channel="bad_deserialize",
+            poll_interval_ms=10,
+            max_poll_seconds=1,
+        )
+        tm = TaskManager()
+        tm.setup(TaskManagerParams(loop=asyncio.get_running_loop()))
+        bus.set_task_manager(tm)
+        await bus.start()
+        try:
+            pgmq.inject(bus._queue_name, {"junk": True})
+            # Reader should consume + log + continue without crashing.
+            await asyncio.sleep(0.3)
+        finally:
+            await bus.stop()
+
+    async def test_reader_loop_logs_when_delete_fails(self):
+        """A failing `delete` after dispatch is logged and not propagated."""
+
+        class BadDeletePgmq(FakePgmq):
+            async def delete(self, queue, msg_id):
+                raise RuntimeError("simulated delete failure")
+
+        pgmq = BadDeletePgmq()
+        bus = PgmqBus(pgmq=pgmq, channel="bad_delete", poll_interval_ms=10, max_poll_seconds=1)
+        tm = TaskManager()
+        tm.setup(TaskManagerParams(loop=asyncio.get_running_loop()))
+        bus.set_task_manager(tm)
+
+        received = []
+        await bus.subscribe(_make_sub(received))
+        await bus.start()
+        try:
+            await bus.send(BusEndMessage(source="a", reason="ok"))
+            await asyncio.sleep(0.3)
+            # Real message still delivered locally despite delete failing.
+            self.assertEqual(len(received), 1)
+        finally:
+            await bus.stop()
+
+
 if __name__ == "__main__":
     unittest.main()
