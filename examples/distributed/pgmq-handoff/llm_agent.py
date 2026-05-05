@@ -26,10 +26,10 @@ from urllib.parse import unquote, urlparse
 
 from dotenv import load_dotenv
 from loguru import logger
+from pgmq.async_queue import PGMQueue
 from pipecat.services.llm_service import FunctionCallParams, LLMService
 from pipecat.services.openai.base_llm import OpenAILLMSettings
 from pipecat.services.openai.llm import OpenAILLMService
-from tembo_pgmq_python.async_queue import PGMQueue
 
 from pipecat_subagents.agents import LLMAgent, LLMAgentActivationArgs, tool
 from pipecat_subagents.bus.network.pgmq import PgmqBus

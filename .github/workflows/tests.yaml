@@ -35,6 +35,7 @@ jobs:
         run: |
           uv sync --group dev \
             --extra flows \
+            --extra pgmq \
             --extra redis \
             --extra websocket
 

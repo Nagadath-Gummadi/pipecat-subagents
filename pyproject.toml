@@ -22,7 +22,7 @@ dependencies = [ "pipecat-ai>=1.0.0" ]
 
 [project.optional-dependencies]
 flows = ["pipecat-ai-flows>=1.0.0"]
-pgmq = ["tembo-pgmq-python>=0.10.0", "asyncpg>=0.30.0"]
+pgmq = ["pgmq>=1.0.6,<1.1", "asyncpg>=0.30.0"]
 redis = ["redis[hiredis]>=5.0.0"]
 websocket = [ "websockets>=13.1,<16.0", "fastapi>=0.115.6,<1" ]
 examples = [

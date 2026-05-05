@@ -2059,6 +2059,19 @@ wheels = [
 ]
 
 [[package]]
+name = "pgmq"
+version = "1.0.6"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "orjson" },
+    { name = "psycopg", extra = ["binary", "pool"] },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/73/33/ac965dde305ef876ca0463a79d18b938f23f19f595001861fbd915a857ee/pgmq-1.0.6.tar.gz", hash = "sha256:966aa20cf835749cd50d5387dc9677d1009331d9e5d4f615bdf2047c55bddbb2", size = 14932, upload-time = "2026-02-24T07:26:38.364Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/40/d8/107e9d0cecc33ea2fcaa80a9e51ceae8405702d630cbed2115bda6805014/pgmq-1.0.6-py3-none-any.whl", hash = "sha256:a1c3fa4d083ea7f0ef1471f3cbf015340154cb5b0eb3ca1746c11ac1706ea901", size = 17053, upload-time = "2026-02-24T07:26:37.189Z" },
+]
+
+[[package]]
 name = "pillow"
 version = "12.2.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2264,10 +2277,10 @@ examples = [
     { name = "asyncpg" },
     { name = "claude-agent-sdk" },
     { name = "fastapi" },
+    { name = "pgmq" },
     { name = "pipecat-ai", extra = ["cartesia", "daily", "deepgram", "openai", "runner", "webrtc"] },
     { name = "pipecat-ai-flows" },
     { name = "redis", extra = ["hiredis"] },
-    { name = "tembo-pgmq-python" },
     { name = "websockets" },
 ]
 flows = [
@@ -2275,7 +2288,7 @@ flows = [
 ]
 pgmq = [
     { name = "asyncpg" },
-    { name = "tembo-pgmq-python" },
+    { name = "pgmq" },
 ]
 redis = [
     { name = "redis", extra = ["hiredis"] },
@@ -2307,12 +2320,12 @@ requires-dist = [
     { name = "asyncpg", marker = "extra == 'pgmq'", specifier = ">=0.30.0" },
     { name = "claude-agent-sdk", marker = "extra == 'examples'", specifier = ">=0.1.0" },
     { name = "fastapi", marker = "extra == 'websocket'", specifier = ">=0.115.6,<1" },
+    { name = "pgmq", marker = "extra == 'pgmq'", specifier = ">=1.0.6,<1.1" },
     { name = "pipecat-ai", specifier = ">=1.0.0" },
     { name = "pipecat-ai", extras = ["cartesia", "daily", "deepgram", "openai", "runner", "silero", "webrtc"], marker = "extra == 'examples'", specifier = ">=1.0.0" },
     { name = "pipecat-ai-flows", marker = "extra == 'flows'", specifier = ">=1.0.0" },
     { name = "pipecat-ai-subagents", extras = ["flows", "pgmq", "redis", "websocket"], marker = "extra == 'examples'" },
     { name = "redis", extras = ["hiredis"], marker = "extra == 'redis'", specifier = ">=5.0.0" },
-    { name = "tembo-pgmq-python", marker = "extra == 'pgmq'", specifier = ">=0.10.0" },
     { name = "websockets", marker = "extra == 'websocket'", specifier = ">=13.1,<16.0" },
 ]
 provides-extras = ["flows", "pgmq", "redis", "websocket", "examples"]
@@ -3601,19 +3614,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/83/d3/803453b36afefb7c2bb238361cd4ae6125a569b4db67cd9e79846ba2d68c/sympy-1.14.0.tar.gz", hash = "sha256:d3d3fe8df1e5a0b42f0e7bdf50541697dbe7d23746e894990c030e2b05e72517", size = 7793921, upload-time = "2025-04-27T18:05:01.611Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a2/09/77d55d46fd61b4a135c444fc97158ef34a095e5681d0a6c10b75bf356191/sympy-1.14.0-py3-none-any.whl", hash = "sha256:e091cc3e99d2141a0ba2847328f5479b05d94a6635cb96148ccb3f34671bd8f5", size = 6299353, upload-time = "2025-04-27T18:04:59.103Z" },
-]
-
-[[package]]
-name = "tembo-pgmq-python"
-version = "0.10.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "orjson" },
-    { name = "psycopg", extra = ["binary", "pool"] },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/e6/4d/b8d0547ee3b4fc01b09eb8844f0a7f81c06d1e924760daf4a4088df60482/tembo_pgmq_python-0.10.0.tar.gz", hash = "sha256:eff7e74d10a1afc1a6d51c1e817581ef537c5bc5f20ac4d9f6a02abd12d6a50b", size = 10850, upload-time = "2025-03-31T13:49:28.881Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/28/75/9357a40c41a31b16280fbc90c4d8ecdb7b3e258af3f531e8192caa365af5/tembo_pgmq_python-0.10.0-py3-none-any.whl", hash = "sha256:53e83c08a30f09fa3c5c49d1d26f7faced06cf40c7c132644195e2da5ff743b1", size = 11273, upload-time = "2025-03-31T13:49:28.004Z" },
 ]
 
 [[package]]

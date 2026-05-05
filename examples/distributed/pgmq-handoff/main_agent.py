@@ -23,6 +23,7 @@ from urllib.parse import unquote, urlparse
 
 from dotenv import load_dotenv
 from loguru import logger
+from pgmq.async_queue import PGMQueue
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.task import PipelineParams, PipelineTask
@@ -37,7 +38,6 @@ from pipecat.services.cartesia.tts import CartesiaTTSService, CartesiaTTSSetting
 from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.transports.base_transport import BaseTransport, TransportParams
 from pipecat.transports.daily.transport import DailyParams
-from tembo_pgmq_python.async_queue import PGMQueue
 
 from pipecat_subagents.agents import BaseAgent, LLMAgentActivationArgs, agent_ready
 from pipecat_subagents.bus import AgentBus, BusBridgeProcessor

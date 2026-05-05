@@ -20,7 +20,7 @@ from pipecat_subagents.bus.serializers import JSONMessageSerializer
 from pipecat_subagents.bus.serializers.base import MessageSerializer
 
 try:
-    from tembo_pgmq_python.async_queue import PGMQueue
+    from pgmq.async_queue import PGMQueue
 except ModuleNotFoundError as e:
     logger.error(f"Exception: {e}")
     logger.error("In order to use PgmqBus, you need to `pip install pipecat-ai-subagents[pgmq]`.")
@@ -64,7 +64,7 @@ class PgmqBus(AgentBus):
     ``BusLocalMessage`` messages bypass PGMQ and are delivered directly to
     local subscribers.
 
-    Requires the ``tembo-pgmq-python`` and ``asyncpg`` packages. Install with
+    Requires the ``pgmq`` and ``asyncpg`` packages. Install with
     ``pip install pipecat-ai-subagents[pgmq]``.
 
     The provided ``PGMQueue`` must already have its connection pool
@@ -83,7 +83,7 @@ class PgmqBus(AgentBus):
 
     Example::
 
-        from tembo_pgmq_python.async_queue import PGMQueue
+        from pgmq.async_queue import PGMQueue
 
         pgmq = PGMQueue(
             host="aws-0-us-east-1.pooler.supabase.com",
