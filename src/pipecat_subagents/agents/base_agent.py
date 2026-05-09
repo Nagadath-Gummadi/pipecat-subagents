@@ -1466,10 +1466,7 @@ class BaseAgent(BaseObject, BusSubscriber):
         """
         self._active_tasks[message.task_id] = message
 
-        # Look for a named handler first, then the default handler
-        handler = self._task_handlers.get(message.task_name)
-        if handler is None and message.task_name is not None:
-            handler = self._task_handlers.get(None)
+        handler = self._task_handlers.get(message.task_name) if message.task_name else None
         if handler is None:
             handler = self.on_task_request
 
