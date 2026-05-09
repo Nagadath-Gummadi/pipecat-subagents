@@ -9,7 +9,7 @@
 from collections.abc import Callable
 
 
-def task(*, name: str):
+def task(*, name: str, sequential: bool = False):
     """Mark an agent method as a task handler.
 
     Decorated methods are automatically collected by ``BaseAgent`` at
@@ -23,14 +23,26 @@ def task(*, name: str):
         async def on_research(self, message):
             ...
 
+        @task(name="write", sequential=True)
+        async def on_write(self, message):
+            ...
+
     Args:
         name: Task name to match. The handler only receives requests
             with a matching name.
+        sequential: When ``True``, requests with this name run one at
+            a time in FIFO order. Concurrent requests wait for the
+            previous one to finish before running. When ``False`` (the
+            default), multiple requests run concurrently. The wait
+            time counts against the requester's timeout, so a slow
+            predecessor can cause queued requests to time out before
+            they start.
     """
 
     def decorator(fn: Callable) -> Callable:
         fn.is_task_handler = True  # type: ignore[attr-defined]
         fn.task_name = name  # type: ignore[attr-defined]
+        fn.task_sequential = sequential  # type: ignore[attr-defined]
         return fn
 
     return decorator

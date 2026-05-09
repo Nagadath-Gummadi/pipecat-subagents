@@ -96,7 +96,8 @@ Task completion does NOT end the agent's pipeline; agents stay alive for reuse.
 
 ### Task handling (worker side)
 
-- Workers receive `on_task_request(message)` or use `@task` decorated handlers
+- Workers receive `on_task_request(message)` or use `@task(name=...)` decorated handlers
+- `@task(name="x", sequential=True)` serializes same-name requests in FIFO order via a per-name `asyncio.Lock`. The wait time counts against the requester's timeout
 - All `send_task_*` methods require an explicit `task_id` argument (from `message.task_id`)
 - `send_task_response(task_id, response, status=)` sends result and removes the task from `active_tasks`
 - `send_task_update(task_id, update)` sends progress without completing

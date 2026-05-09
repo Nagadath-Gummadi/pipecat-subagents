@@ -295,6 +295,7 @@ class BaseAgent(BaseObject, BusSubscriber):
         self._task_handler_tasks: dict[str, asyncio.Task] = {}
         self._task_groups: dict[str, TaskGroup] = {}
         self._task_handlers = _collect_task_handlers(self)
+        self._task_locks: dict[str, asyncio.Lock] = {}
 
         # Agent-ready handlers collected from @agent_ready decorated methods.
         self._agent_ready_handlers = _collect_agent_ready_handlers(self)
@@ -1462,7 +1463,9 @@ class BaseAgent(BaseObject, BusSubscriber):
 
         Dispatches to @task handlers if any match, otherwise falls back
         to on_task_request. The handler always runs in its own asyncio
-        task so the bus message loop is never blocked.
+        task so the bus message loop is never blocked. When the matched
+        handler is marked ``sequential=True``, requests with the same
+        task name are queued and run one at a time in FIFO order.
         """
         self._active_tasks[message.task_id] = message
 
@@ -1470,17 +1473,31 @@ class BaseAgent(BaseObject, BusSubscriber):
         if handler is None:
             handler = self.on_task_request
 
+        lock: asyncio.Lock | None = None
+        if message.task_name and getattr(handler, "task_sequential", False):
+            lock = self._task_locks.setdefault(message.task_name, asyncio.Lock())
+
         task = self.create_asyncio_task(
-            self._run_task_handler(message.task_id, handler, message),
+            self._run_task_handler(message.task_id, handler, message, lock),
             f"{self.name}::task_{message.task_name or 'default'}",
         )
         self._task_handler_tasks[message.task_id] = task
 
         await self._call_event_handler("on_task_request", message)
 
-    async def _run_task_handler(self, task_id: str, handler, message) -> None:
+    async def _run_task_handler(
+        self,
+        task_id: str,
+        handler,
+        message,
+        lock: asyncio.Lock | None = None,
+    ) -> None:
         try:
-            await handler(message)
+            if lock is not None:
+                async with lock:
+                    await handler(message)
+            else:
+                await handler(message)
         except asyncio.CancelledError:
             pass
         finally:
