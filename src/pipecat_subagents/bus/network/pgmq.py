@@ -72,11 +72,12 @@ class PgmqBus(AgentBus):
     does not own the client's lifetime and will not close it on stop.
 
     Notes:
-        Prefer the session-mode pooler (Supabase port 5432) when one is
-        available. Transaction-mode pooling (Supabase port 6543) works in
-        practice with this adapter because each PGMQ call is a single SQL
-        statement, but it logs benign "resetting connection with an active
-        transaction" warnings and is more fragile around prepared statements.
+        Prefer the session-mode pooler (e.g. port 5432 in Supabase) when
+        one is available. Transaction-mode pooling (e.g. port 6543 in
+        Supabase) works in practice with this adapter because each PGMQ
+        call is a single SQL statement, but it logs benign "resetting
+        connection with an active transaction" warnings and is more
+        fragile around prepared statements.
         The underlying pool must allow at least 2 concurrent connections
         (one for the reader's long-poll, one for publishes); 4+ recommended
         under load.
@@ -145,7 +146,7 @@ class PgmqBus(AgentBus):
         await super().start()
         self._queue_name = f"{self._safe_channel}_{uuid.uuid4().hex[:12]}"
         await self._pgmq.create_queue(self._queue_name)
-        logger.info(f"{self}: created pgmq queue '{self._queue_name}'")
+        logger.debug(f"{self}: created pgmq queue '{self._queue_name}'")
         self._reader_task = self.create_asyncio_task(self._reader_loop(), f"{self}::pgmq_reader")
         await asyncio.sleep(0)
 
@@ -206,8 +207,6 @@ class PgmqBus(AgentBus):
                     max_poll_seconds=self._max_poll_seconds,
                     poll_interval_ms=self._poll_interval_ms,
                 )
-            except asyncio.CancelledError:
-                raise
             except Exception:
                 logger.exception(f"{self}: pgmq read failed; backing off")
                 await asyncio.sleep(1)
