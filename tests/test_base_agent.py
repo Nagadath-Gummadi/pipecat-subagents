@@ -16,6 +16,7 @@ from pipecat.utils.asyncio.task_manager import TaskManager, TaskManagerParams
 
 from pipecat_subagents.agents.base_agent import BaseAgent
 from pipecat_subagents.agents.task_context import TaskStatus
+from pipecat_subagents.agents.task_decorator import task
 from pipecat_subagents.bus import (
     AsyncQueueBus,
     BusActivateAgentMessage,
@@ -1353,6 +1354,125 @@ class TestTaskLifecycle(unittest.IsolatedAsyncioTestCase):
 
         group = parent.task_groups[task_id]
         self.assertIsNone(group.timeout_task)
+
+
+class TestTaskDecorator(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.bus, self.tm = create_test_bus()
+
+    async def _wait_until(self, predicate, timeout=1.0):
+        deadline = asyncio.get_event_loop().time() + timeout
+        while not predicate():
+            if asyncio.get_event_loop().time() > deadline:
+                raise AssertionError("condition not met within timeout")
+            await asyncio.sleep(0.01)
+
+    async def test_sequential_runs_one_at_a_time_in_order(self):
+        """sequential=True serializes same-name requests in FIFO order."""
+        running = 0
+        max_running = 0
+        completion_order: list[str] = []
+        gates: dict[str, asyncio.Event] = {}
+
+        class WorkerAgent(StubAgent):
+            @task(name="work", sequential=True)
+            async def on_work(self, message):
+                nonlocal running, max_running
+                running += 1
+                max_running = max(max_running, running)
+                await gates[message.task_id].wait()
+                completion_order.append(message.task_id)
+                running -= 1
+
+        agent = WorkerAgent("worker", bus=self.bus)
+        agent.set_task_manager(self.tm)
+
+        for tid in ("t1", "t2", "t3"):
+            gates[tid] = asyncio.Event()
+            await agent.on_bus_message(
+                BusTaskRequestMessage(
+                    source="parent", target="worker", task_id=tid, task_name="work"
+                )
+            )
+
+        # Let the first handler enter the locked region.
+        await self._wait_until(lambda: running == 1)
+
+        # Release in order; verify completion in order.
+        for tid in ("t1", "t2", "t3"):
+            gates[tid].set()
+            await self._wait_until(lambda tid=tid: tid in completion_order)
+
+        self.assertEqual(completion_order, ["t1", "t2", "t3"])
+        self.assertEqual(max_running, 1)
+
+    async def test_non_sequential_runs_concurrently(self):
+        """Without sequential=True, same-name handlers run concurrently."""
+        running = 0
+        max_running = 0
+        release = asyncio.Event()
+
+        class WorkerAgent(StubAgent):
+            @task(name="work")
+            async def on_work(self, message):
+                nonlocal running, max_running
+                running += 1
+                max_running = max(max_running, running)
+                await release.wait()
+                running -= 1
+
+        agent = WorkerAgent("worker", bus=self.bus)
+        agent.set_task_manager(self.tm)
+
+        for tid in ("t1", "t2"):
+            await agent.on_bus_message(
+                BusTaskRequestMessage(
+                    source="parent", target="worker", task_id=tid, task_name="work"
+                )
+            )
+
+        await self._wait_until(lambda: running == 2)
+        self.assertEqual(max_running, 2)
+        release.set()
+        await self._wait_until(lambda: running == 0)
+
+    async def test_sequential_locks_are_per_name(self):
+        """Sequential lock is per task name; different names do not block each other."""
+        running = 0
+        max_running = 0
+        release = asyncio.Event()
+
+        class WorkerAgent(StubAgent):
+            @task(name="a", sequential=True)
+            async def on_a(self, message):
+                nonlocal running, max_running
+                running += 1
+                max_running = max(max_running, running)
+                await release.wait()
+                running -= 1
+
+            @task(name="b", sequential=True)
+            async def on_b(self, message):
+                nonlocal running, max_running
+                running += 1
+                max_running = max(max_running, running)
+                await release.wait()
+                running -= 1
+
+        agent = WorkerAgent("worker", bus=self.bus)
+        agent.set_task_manager(self.tm)
+
+        await agent.on_bus_message(
+            BusTaskRequestMessage(source="parent", target="worker", task_id="ta", task_name="a")
+        )
+        await agent.on_bus_message(
+            BusTaskRequestMessage(source="parent", target="worker", task_id="tb", task_name="b")
+        )
+
+        await self._wait_until(lambda: running == 2)
+        self.assertEqual(max_running, 2)
+        release.set()
+        await self._wait_until(lambda: running == 0)
 
 
 if __name__ == "__main__":
