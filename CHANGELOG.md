@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- towncrier release notes start -->
 
+## [0.5.0] - 2026-05-12
+
+### Added
+
+- Added `LLMContextAgent`, a subclass of `LLMAgent` that owns an `LLMContext`
+  and an `LLMContextAggregatorPair`. Its pipeline is built as
+  `[user_aggregator, llm, assistant_aggregator]`, so subclasses no longer need
+  to wire the context plumbing themselves. The constructor accepts optional
+  `context`, `user_params`, and `assistant_params`, and the aggregators are
+  exposed via the `user_aggregator` / `assistant_aggregator` / `context`
+  properties (available from `on_ready` onwards).
+  (PR [#20](https://github.com/pipecat-ai/pipecat-subagents/pull/20))
+
+- Added `PgmqBus`, a distributed agent bus backed by PGMQ (PostgreSQL Message
+  Queue) via the official [`pgmq`](https://pypi.org/project/pgmq/) Python
+  client. Each instance broadcasts to peer queues sharing the channel prefix,
+  providing fan-out semantics on top of PGMQ's point-to-point queues. Install
+  with `pip install pipecat-ai-subagents[pgmq]`. A runnable example is included
+  under `examples/distributed/pgmq-handoff/`. The `pgmq` extra is pinned to
+  `>=1.0.6,<1.1` because pgmq 1.1.0 requires PGMQ extension v1.6+ on the
+  database, which Supabase does not yet ship.
+  (PR [#21](https://github.com/pipecat-ai/pipecat-subagents/pull/21))
+
+- Added a `sequential` flag to the `@task` decorator. When `@task(name="...",
+  sequential=True)` is used, concurrent requests for that task name are
+  serialized and run one at a time in FIFO order via a per-name `asyncio.Lock`.
+  The wait time counts against the requester's timeout.
+  (PR [#22](https://github.com/pipecat-ai/pipecat-subagents/pull/22))
+
+### Changed
+
+- ⚠️ Moved `LLMAgent` and `FlowsAgent` into their own subpackages. `LLMAgent`
+  and `LLMAgentActivationArgs` now live in `pipecat_subagents.agents.llm`, the
+  `@tool` decorator in `pipecat_subagents.agents.llm.tool_decorator`, and
+  `FlowsAgent` in `pipecat_subagents.agents.flows`. Top-level imports from
+  `pipecat_subagents.agents` (e.g. `LLMAgent`, `tool`) are unchanged; direct
+  imports from `pipecat_subagents.agents.llm_agent`,
+  `pipecat_subagents.agents.tool_decorator`, and
+  `pipecat_subagents.agents.flows_agent` must be updated.
+   (PR [#19](https://github.com/pipecat-ai/pipecat-subagents/pull/19))
+
+- ⚠️ The `@task` decorator now requires a keyword `name` argument and no longer
+  supports the bare `@task` form or a default unnamed handler. Use
+  `@task(name="...")` to register a named task handler; requests without a
+  matching named handler now fall back to `on_task_request`. Existing `@task`
+  (no args) and `@task(name=None)` usages must be updated.
+  (PR [#22](https://github.com/pipecat-ai/pipecat-subagents/pull/22))
+
 ## [0.4.0] - 2026-04-20
 
 ### Changed
