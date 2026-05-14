@@ -506,13 +506,15 @@ class TestPgmqBusErrorPaths(unittest.IsolatedAsyncioTestCase):
         try:
             # Warm the peer cache with the bus's own queue.
             await bus.send(BusDataMessage(source="warmup"))
+            self.assertIn("cached_drop", bus._backend._peer_cache)
             # Drop our queue so the cached entry now points at nothing.
             await pgmq.drop_queue(bus._queue_name)
             # Force-keep the cache fresh so we hit the cached path on the next publish.
-            bus._peer_cache_at = float("inf")
+            cached_at, peers = bus._backend._peer_cache["cached_drop"]
+            bus._backend._peer_cache["cached_drop"] = (float("inf"), peers)
             # Should swallow the exception from the dropped peer and reset the cache.
             await bus.send(BusDataMessage(source="dead-letter"))
-            self.assertEqual(bus._peer_cache_at, 0.0)
+            self.assertNotIn("cached_drop", bus._backend._peer_cache)
         finally:
             # Re-create the queue so stop() can drop it cleanly without surfacing.
             await pgmq.create_queue(bus._queue_name)
