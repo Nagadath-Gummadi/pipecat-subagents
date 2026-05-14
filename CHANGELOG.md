@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- towncrier release notes start -->
 
+## [0.6.0] - 2026-05-14
+
+### Added
+
+- Added a pluggable backend layer to `PgmqBus`. Two backends ship:
+  `DirectPgmqBackend` (calls `pgmq.*` directly with prefix-based peer
+  discovery; suitable when bus peers trust each other) and
+  `IsolatedPgmqBackend` (calls `public.bus_*` SECURITY DEFINER wrappers over an
+  asyncpg pool; suitable when peers should be isolated and the channel name is
+  the bus capability). Construct `PgmqBus` with `pgmq=` for the direct backend
+  or `backend=` for any custom or wrapper-based backend.
+  (PR [#24](https://github.com/pipecat-ai/pipecat-subagents/pull/24))
+
 ## [0.5.0] - 2026-05-12
 
 ### Added
